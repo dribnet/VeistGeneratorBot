@@ -5,12 +5,12 @@ const sequelize = require('../sql-database');
 module.exports = sequelize.define('VChannel', {
     name: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        primaryKey: true
     },
     id: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        primaryKey: true
     }
 });
 

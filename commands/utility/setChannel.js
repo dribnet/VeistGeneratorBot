@@ -16,15 +16,10 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         async execute(interaction) {
             const channel = interaction.options.getChannel('channel');
-            const [vchan, created] = await VChannel.findOrCreate({
-                where: { id: channel.id },
-                defaults: { name: channel.name }
+            await VChannel.upsert({
+                name: "Target_Channel",
+                id: channel.id
             });
-            if (created) {
-                await interaction.reply(`'${channel.name}' has been set as the target channel.`);
-            }
-            else {
-                await interaction.reply(`'${channel.name}' has already been set as the target channel.`);
-            }
+            await interaction.reply(`The target channel has been set to '${channel.name}'.`);
         }
 }
