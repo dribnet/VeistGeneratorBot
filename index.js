@@ -1,4 +1,6 @@
 // Require the necessary discord.js classes
+const sequelize = require('./sql-database');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
@@ -54,6 +56,18 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 });
+
+// Sync SQLite models
+(async () => {
+    try {
+        await sequelize.authenticate();
+        console.log('Database connected successfully.');
+        await sequelize.sync();
+        console.log('Database synced.');
+    } catch (error) {
+        console.error('Unable to connect to the database:', error);
+    }
+})();
 
 // When the client is ready, run this code only once.
 client.once(Events.ClientReady, readyClient => {
