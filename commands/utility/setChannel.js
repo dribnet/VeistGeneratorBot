@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const VChannel = require('../../models/VChannel');
-const { where } = require('../../sql-database');
+const VGenerator = require('../../models/VGenerator');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,9 +15,9 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         async execute(interaction) {
             const channel = interaction.options.getChannel('channel');
-            await VChannel.upsert({
-                name: "Target_Channel",
-                id: channel.id
+            await VGenerator.upsert({
+                name: "default",
+                channel_id: channel.id
             });
             await interaction.reply(`The target channel has been set to '${channel.name}'.`);
         }

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 
 // This command would ideally be deployed as a guild command in a private guild.
 // This is not neccessary for a prototype build.
@@ -27,7 +27,7 @@ module.exports = {
             await interaction.reply(`Command '${newCommand.data.name} was reloaded.`)
         } catch (error) {
             console.error(error);
-            await interaction.reply(`There was an error while reloading command '${newCommand.data.name}.`)
+            await interaction.reply({content: `There was an error while reloading command '${newCommand.data.name}.`, flags: MessageFlags.Ephemeral})
         }
     }
 }
