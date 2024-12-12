@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags } = require('discord.js');
 const VGenerator = require('../../models/VGenerator');
 
 module.exports = {
@@ -19,6 +19,9 @@ module.exports = {
                 name: "default",
                 channel_id: channel.id
             });
-            await interaction.reply(`The target channel has been set to '${channel.name}'.`);
+            await interaction.reply({
+                content: `The target channel has been set to '${channel.name}'.`,
+                flags: MessageFlags.Ephemeral
+            });
         }
 }

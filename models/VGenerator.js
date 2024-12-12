@@ -15,11 +15,26 @@ module.exports = sequelize.define('VGenerator', {
     gen_interval: {
         type: DataTypes.INTEGER, // ms
         allowNull: false,
-        defaultValue: 60000 // 1 minute
+        defaultValue: 30000 // 30s
     },
-    timer_id: {
-        type: DataTypes.BIGINT,
+    timer_active: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    },
+    current_upvotes: {
+        type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0
+    },
+    current_downvotes: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
+    },
+    users : {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: { list: [] }
     }
 });
