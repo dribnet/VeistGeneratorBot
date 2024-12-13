@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const VGenerator = require('../../models/VGenerator');
+const VPost = require('../../models/VPost');
 const path = require('path');
 
 module.exports = {
@@ -8,9 +9,10 @@ module.exports = {
         .setDescription('Start running the generator.'),
     async execute(interaction) {
         const generator = await VGenerator.findByPk("default");
+        
         const channelId = generator.channel_id;
         const genInterval = generator.gen_interval;
-
+        
         const channel = interaction.client.channels.cache.get(channelId);
 
         if (!channel) {
@@ -35,7 +37,7 @@ module.exports = {
         });
 
         // Schedule the image posting
-        postImage(channel, genInterval); // Post one image immediately, then start timer
+        postImage(channel, genInterval, true); // Post one image immediately, then start timer
         const timerId = setInterval(async () => { 
             // Check if timer is still active and clear it if it is not
             const gen = await VGenerator.findByPk("default");
@@ -44,12 +46,12 @@ module.exports = {
                 return;
             }
 
-            postImage(channel, genInterval);
+            postImage(channel, genInterval, false);
         }, genInterval);
     }
 }
 
-function postImage(channel, genInterval) {
+async function postImage(channel, genInterval, initial) {
     // Create buttons
     const upvoteButton = new ButtonBuilder()
         .setCustomId('upvote')
@@ -63,13 +65,26 @@ function postImage(channel, genInterval) {
 
     const row = new ActionRowBuilder().addComponents(upvoteButton, downvoteButton);
 
+    // Generate image
+    const { Client } = await import('@gradio/client'); // Dynamic import
+    const client = await Client.connect("rynmurdock/generative_recsys");
+
+    if (initial) {
+        const initialResponse = await client.predict('/start', );
+        const imageUrl = initialResponse[initialResponse.length-1]
+        console.log(imageUrl)
+    }
+
     var imgPost = null;
     channel.send({
         files: [path.join(__dirname, '../..', 'test_images', 'test_' + (Math.floor(Math.random() * 36) + 1) + '.png')],
         components: [row]
     })
-    .then(data => imgPost = data)
-    .catch(console.error);
+    .then(data => {
+        imgPost = data;
+        VPost.findOrCreate()
+    })
+    .catch(console.error);    
     
     // Create a collector for button interactions
     const filter = (i) => ['upvote', 'downvote'].includes(i.customId);
@@ -123,11 +138,25 @@ function postImage(channel, genInterval) {
     collector.on('end', async () => {
         const gen = await VGenerator.findByPk("default");
 
+        // Update button text
+        const updatedUpvoteButton = ButtonBuilder
+            .from(upvoteButton)
+            .setLabel(`👍 (${gen.current_upvotes})`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true)
+        const updatedDownvoteButton = ButtonBuilder
+            .from(downvoteButton)
+            .setLabel(`👎 (${gen.current_downvotes})`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true)
+
+        const updatedRow = new ActionRowBuilder().addComponents(
+            updatedUpvoteButton, 
+            updatedDownvoteButton
+        );
+
         await imgPost.edit({
-            components: []
-        });
-        await imgPost.reply({
-            content: `Image received: 👍 ${gen.current_upvotes} | 👎 ${gen.current_downvotes}`,
+            components: [updatedRow]
         });
 
         gen.current_upvotes = 0;

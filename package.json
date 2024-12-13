@@ -9,6 +9,7 @@
   "author": "Zavier Boyles & Tom White",
   "license": "ISC",
   "dependencies": {
+    "@gradio/client": "^1.8.0",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "sequelize": "^6.37.5",
