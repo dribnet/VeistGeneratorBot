@@ -2,13 +2,22 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../sql-database');
 
 module.exports = sequelize.define('VPost', {
-    mesage_id: {
+    message_id: {
         type: DataTypes.STRING,
         allowNull: false,
         primaryKey: true
     },
     prediction_response: {
         type: DataTypes.JSON,
+        allowNull: true
+    },
+    prompt: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: ""
+    },
+    seed: {
+        type: DataTypes.STRING,
         allowNull: true
     },
     upvotes: {
