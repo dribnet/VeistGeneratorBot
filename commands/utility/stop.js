@@ -16,12 +16,16 @@ module.exports = {
             return;
         }
 
-        await VGenerator.update(
-            { timer_active: false },
-            {
-                where: { name: "default" }
-            }
-        );
+        const gen = await VGenerator.findByPk('default');
+
+        gen.timer_active = false;
+        
+        const prop = gen.properties;
+        prop.gen_type = 'none';
+        gen.properties = prop;
+        gen.changed('properties', true);
+        
+        await gen.save();
 
         interaction.reply({
             content: 'Timer has been stopped.',
