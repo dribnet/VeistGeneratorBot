@@ -33,11 +33,10 @@ module.exports = {
         }
 
         // Set timer_active to be running
-
         gen.timer_active = true;
 
         const prop = gen.properties;
-        prop.gen_type = 'prompter';
+        prop.gen_type = 'reaction';
         gen.properties = prop;
         gen.changed('properties', true);
         
@@ -48,78 +47,68 @@ module.exports = {
             flags: MessageFlags.Ephemeral
         });
 
-        // Schedule the image posting
-        postImage(channel, genInterval); // Post one image immediately, then start timer
-        const timerId = setInterval(async () => {
-            // Check if timer is still active and clear it if it is not
-            const gen = await VGenerator.findByPk("default");
-            if (!gen?.timer_active) {
-                clearInterval(timerId);
-                return;
-            }
-
-            postImage(channel, genInterval);
-        }, genInterval);
+        postImage(channel, genInterval);
     }
 }
 
 async function postImage(channel, genInterval) {
-    // Generate image
-    const { Client } = await import('@gradio/client'); // Dynamic import
-    const client = await Client.connect('black-forest-labs/FLUX.1-schnell', { hf_token: hf_token });
-    const prompt = await getPrompt();
-
-    let imgData = null;
-    await client.predict('/infer', {
-        prompt: prompt,
-        seed: 0,
-        randomize_seed: true,
-        width: 512,
-        height: 512,
-        num_inference_steps: 4
-    })
-    .then(response => {
-        imgData = response.data;
-        console.log(response.data)
-    })
-    .catch(err => console.error(err));
-
-    var imgPost = null;
+    let post = null;
+    let imgPath = `test_${Math.floor(Math.random() * 36)+1}.png`;
     channel.send({
-        files: [imgData[0].url]
+        files: [`./test_images/${imgPath}`]
     })
     .then(data => {
-        imgPost = data;
+        post = data;
         VPost.findOrCreate({
             where: {
-                message_id: imgPost.id
+                message_id: post.id
             },
             defaults: {
-                prediction_response: imgData[0],
-                prompt: prompt,
-                seed: imgData[1]
+                prompt: imgPath
             }
         });
+
+        startCollector(post, genInterval);
+
+        // post.react('👍');
     })
     .catch(console.error);
-
-    const filter = (i) => {};
-    const collector = imgPost.createReactionCollector({
-
-    });
-
 }
 
-async function getPrompt() {
-    const gen = await VGenerator.findByPk('default');
+async function startCollector(message, genInterval) {
+    const collector = message.createReactionCollector({ time: genInterval });
 
-    let str = "";
-    for (let key in gen.prompts) {
-        if (gen.prompts.hasOwnProperty(key)) {
-            const val = gen.prompts[key].prompt;
-            str += `${val}, `;
+    collector.on('collect', async (reaction, user) => {
+        const post = await VPost.findByPk(collector.message.id);
+
+        post.users.list.push(user.id);
+        post.reactions[user.id] = reaction.emoji.name;
+        post.changed('users', true);
+        post.changed('reactions', true);
+
+        await post.save();
+    });
+
+    collector.on('dispose', async (reaction, user) => {
+        const post = await VPost.findByPk(collector.message.id);
+
+        const index = post.users.list.indexOf(user.id);
+        if (index > -1) {
+            post.users.list.splice(index, 1);
         }
-    }
-    str = str.replace(/,\s*$/, '');
-    return str;
+        else {
+            console.log(`Error: ${user.name} tried to remove a reaction, but they were not found in the post's users.`);
+            return;
+        }
+
+        delete post.reactions[user.id];
+
+        post.changed(['users', 'reactions'], true);
+
+        await post.save();
+    });
+
+    collector.on('end', collected => {
+        console.log(`Collected ${collected.size} items`);
+    });
 }
