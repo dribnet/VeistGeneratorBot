@@ -48,33 +48,51 @@ module.exports = {
         });
 
         // Post initial image
-        postImage(channel, genInterval);
+        postImage(channel, genInterval, "");
     }
 }
 
-async function postImage(channel, genInterval) {
-    let post = null;
-    let imgPath = `test_${Math.floor(Math.random() * 36)+1}.png`;
+async function postImage(channel, genInterval, prompt) {
+    // Generate image
+    const { Client } = await import('@gradio/client'); // Dynamic import
+    const client = await Client.connect('black-forest-labs/FLUX.1-schnell', { hf_token: hf_token });
+
+    let imgData = null;
+    await client.predict('/infer', {
+        prompt: prompt,
+        seed: 0,
+        randomize_seed: true,
+        width: 512,
+        height: 512,
+        num_inference_steps: 4
+    })
+    .then(response => {
+        imgData = response.data;
+        console.log(response.data)
+    })
+    .catch(err => console.error(err));
+
+    let imgPost = null;
     channel.send({
-        files: [`./test_images/${imgPath}`]
+        files: [imgData[0].url]
     })
     .then(data => {
-        post = data;
+        imgPost = data;
         VPost.findOrCreate({
             where: {
-                message_id: post.id
+                message_id: imgPost.id
             },
             defaults: {
-                prompt: imgPath
+                prediction_response: imgData[0],
+                prompt: prompt,
+                seed: imgData[1]
             }
         });
-
-        // post.react('👍');
     })
     .catch(console.error);
 
     // Start timer
-    setTimeout(async () => {
+    let timerId = setTimeout(async () => {
         const vpost = await VPost.findOne({
             order: [['createdAt', 'DESC']]
         })
@@ -95,13 +113,18 @@ async function postImage(channel, genInterval) {
             await vpost.save();
 
             message.reply({
-                content: `Reactions recieved: ` + data.map(item => `${item.emoji} x${item.users.length}`).join(', ')
+                content: `Reactions recieved: ` + reactions.map(item => `${item.emoji} x${item.users.length}`).join(', ')
             });
             await message.reactions.removeAll();
 
             // Recursively call postImage(). We do this here to guaruntee that the reactions
             // have been stored in the database before trying to construct the next prompt
-            postImage(channel, genInterval);
+            const gen = await VGenerator.findByPk("default");
+            if (!gen?.timer_active) {
+                clearInterval(timerId);
+                return;
+            }
+            postImage(channel, genInterval, reactions.map(item => `${item.emoji}`).join(', '));
             
         } catch (error) {
             console.error(error);
