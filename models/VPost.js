@@ -33,7 +33,7 @@ module.exports = sequelize.define('VPost', {
     reactions: {
         type: DataTypes.JSON,
         allowNull: false,
-        defaultValue: {}
+        defaultValue: { list: [] }
     },
     users: {
         type: DataTypes.JSON,

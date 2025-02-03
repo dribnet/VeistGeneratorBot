@@ -47,6 +47,7 @@ module.exports = {
             flags: MessageFlags.Ephemeral
         });
 
+        // Post initial image
         postImage(channel, genInterval);
     }
 }
@@ -68,47 +69,42 @@ async function postImage(channel, genInterval) {
             }
         });
 
-        startCollector(post, genInterval);
-
         // post.react('👍');
     })
     .catch(console.error);
-}
 
-async function startCollector(message, genInterval) {
-    const collector = message.createReactionCollector({ time: genInterval });
+    // Start timer
+    setTimeout(async () => {
+        const vpost = await VPost.findOne({
+            order: [['createdAt', 'DESC']]
+        })
+        try {
+            const message = await channel.messages.fetch(vpost.message_id);
+    
+            const reactions = message.reactions.cache.map(reaction => ({
+                emoji: reaction.emoji.name,
+                users: reaction.users.cache.map(user => user.id)
+            }));
 
-    collector.on('collect', async (reaction, user) => {
-        const post = await VPost.findByPk(collector.message.id);
+            vpost.reactions.list = reactions;
+            vpost.changed('reactions', true);
 
-        post.users.list.push(user.id);
-        post.reactions[user.id] = reaction.emoji.name;
-        post.changed('users', true);
-        post.changed('reactions', true);
+            vpost.users.list = [...new Set(reactions.flatMap(item => item.users))];
+            vpost.changed('users', true);
 
-        await post.save();
-    });
+            await vpost.save();
 
-    collector.on('dispose', async (reaction, user) => {
-        const post = await VPost.findByPk(collector.message.id);
+            message.reply({
+                content: `Reactions recieved: ` + data.map(item => `${item.emoji} x${item.users.length}`).join(', ')
+            });
+            await message.reactions.removeAll();
 
-        const index = post.users.list.indexOf(user.id);
-        if (index > -1) {
-            post.users.list.splice(index, 1);
+            // Recursively call postImage(). We do this here to guaruntee that the reactions
+            // have been stored in the database before trying to construct the next prompt
+            postImage(channel, genInterval);
+            
+        } catch (error) {
+            console.error(error);
         }
-        else {
-            console.log(`Error: ${user.name} tried to remove a reaction, but they were not found in the post's users.`);
-            return;
-        }
-
-        delete post.reactions[user.id];
-
-        post.changed(['users', 'reactions'], true);
-
-        await post.save();
-    });
-
-    collector.on('end', collected => {
-        console.log(`Collected ${collected.size} items`);
-    });
+    }, genInterval);
 }
