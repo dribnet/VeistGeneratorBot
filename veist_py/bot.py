@@ -25,11 +25,14 @@ class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.reactions = True  # Make sure we can see reactions
         
         super().__init__(command_prefix='!', intents=intents)
         self.generator = VeistGenerator()
         self.generation_channel = None
         self.is_generating = False
+        self.last_message = None
+        self.last_prompt = None
 
     async def setup_hook(self):
         print("Syncing commands to guild...")
@@ -53,7 +56,38 @@ class VeistBot(commands.Bot):
         self.generator.start_prompter()
         
         # Generate first image with random prompt
-        await self.generate_and_send(random.choice(STARTER_PROMPTS))
+        initial_prompt = random.choice(STARTER_PROMPTS)
+        self.last_prompt = initial_prompt
+        await self.generate_and_send(initial_prompt, is_initial=True)
+
+    async def collect_reactions(self):
+        """Collect reactions from the last message"""
+        if not self.last_message:
+            return []
+            
+        # Fetch the message again to get updated reactions
+        message = await self.generation_channel.fetch_message(self.last_message.id)
+        
+        # Collect all reactions
+        reactions = []
+        for reaction in message.reactions:
+            # Convert emoji to text description
+            if isinstance(reaction.emoji, str):
+                reactions.append(reaction.emoji)
+            else:
+                reactions.append(reaction.emoji.name)
+                
+        print(f"Collected reactions: {reactions}")  # Debug print
+        return reactions
+
+    def build_next_prompt(self, reactions):
+        """Build next prompt based on previous prompt and reactions"""
+        if not reactions:
+            return random.choice(STARTER_PROMPTS)
+            
+        # Convert reactions to prompt modifications
+        reaction_text = " and ".join(reactions)
+        return f"{self.last_prompt}, but more {reaction_text}"
 
     async def generate_and_send(self, prompt=None, is_initial=False):
         """Helper method to generate and send images"""
@@ -62,6 +96,11 @@ class VeistBot(commands.Bot):
             
         self.is_generating = True
         try:
+            # If no prompt provided and not initial, build from reactions
+            if prompt is None and not is_initial:
+                reactions = await self.collect_reactions()
+                prompt = self.build_next_prompt(reactions)
+            
             # Run the generation in a thread pool
             result = await self.loop.run_in_executor(
                 None, 
@@ -75,16 +114,26 @@ class VeistBot(commands.Bot):
                 
             file = discord.File(result["path"])
             prefix = "🎨 Starting up with" if is_initial else "🎮 New generation\n"
-            await self.generation_channel.send(
+            
+            # Send the message and store it
+            self.last_message = await self.generation_channel.send(
                 f"{prefix}Prompt: {result['prompt']}\nStatus: {result['status']}", 
                 file=file
             )
+            self.last_prompt = result['prompt']
+            
+            # Add some starter reactions for guidance
+            if is_initial:
+                starter_reactions = ["🔥", "❄️", "🌟", "🎨", "🌈"]
+                for reaction in starter_reactions:
+                    await self.last_message.add_reaction(reaction)
+                
         except Exception as e:
             await self.generation_channel.send(f"Error during generation: {str(e)}")
         finally:
             self.is_generating = False
 
-    @tasks.loop(seconds=60)  # Increased interval to 60 seconds
+    @tasks.loop(seconds=60)
     async def generate_loop(self):
         if not self.generation_channel or not self.is_ready():
             return
