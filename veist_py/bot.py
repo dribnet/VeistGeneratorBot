@@ -1,24 +1,35 @@
 import os
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from generator import VeistGenerator
-import discord.file
+import asyncio
+import random
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD_ID = discord.Object(id=1340994099175620650)  # Replace with your server ID
+GUILD_ID = discord.Object(id=os.getenv('GUILD_ID', '0'))
+CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))  # Add your channel ID to .env
 
-# Set up bot
+STARTER_PROMPTS = [
+    "a mysterious robot in a garden",
+    "an abstract digital landscape",
+    "a futuristic city at night",
+    "a geometric pattern with bright colors",
+    "a cyberpunk scene with neon lights"
+]
+
 class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         
         super().__init__(command_prefix='!', intents=intents)
-        self.generator = VeistGenerator()  # Initialize our generator
+        self.generator = VeistGenerator()
+        self.generation_channel = None
+        self.is_generating = False
 
     async def setup_hook(self):
         print("Syncing commands to guild...")
@@ -26,9 +37,63 @@ class VeistBot(commands.Bot):
         synced = await self.tree.sync(guild=GUILD_ID)
         print(f"Synced {len(synced)} command(s)")
         
+        # Start the generation loop
+        self.generate_loop.start()
+
     async def on_ready(self):
         print(f'{self.user} has connected to Discord!')
-        print(f"Registered commands: {[cmd.name for cmd in self.tree.get_commands()]}")
+        
+        # Set up the generation channel
+        self.generation_channel = self.get_channel(CHANNEL_ID)
+        if not self.generation_channel:
+            print(f"Warning: Could not find channel {CHANNEL_ID}")
+            return
+            
+        # Start the generator
+        self.generator.start_prompter()
+        
+        # Generate first image with random prompt
+        await self.generate_and_send(random.choice(STARTER_PROMPTS))
+
+    async def generate_and_send(self, prompt=None, is_initial=False):
+        """Helper method to generate and send images"""
+        if self.is_generating:
+            return
+            
+        self.is_generating = True
+        try:
+            # Run the generation in a thread pool
+            result = await self.loop.run_in_executor(
+                None, 
+                self.generator.generate_image,
+                prompt
+            )
+            
+            if "error" in result:
+                await self.generation_channel.send(f"Error generating image: {result['error']}")
+                return
+                
+            file = discord.File(result["path"])
+            prefix = "🎨 Starting up with" if is_initial else "🎮 New generation\n"
+            await self.generation_channel.send(
+                f"{prefix}Prompt: {result['prompt']}\nStatus: {result['status']}", 
+                file=file
+            )
+        except Exception as e:
+            await self.generation_channel.send(f"Error during generation: {str(e)}")
+        finally:
+            self.is_generating = False
+
+    @tasks.loop(seconds=60)  # Increased interval to 60 seconds
+    async def generate_loop(self):
+        if not self.generation_channel or not self.is_ready():
+            return
+            
+        await self.generate_and_send()
+
+    @generate_loop.before_loop
+    async def before_generate_loop(self):
+        await self.wait_until_ready()
 
 bot = VeistBot()
 
