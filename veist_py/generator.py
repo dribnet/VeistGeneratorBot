@@ -1,3 +1,12 @@
+from huggingface_hub import InferenceClient
+import os
+from PIL import Image
+from io import BytesIO
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 class VeistGenerator:
     def __init__(self):
         self.active = False
@@ -5,6 +14,49 @@ class VeistGenerator:
         self.gen_interval = 30  # seconds
         self.current_prompt = ""
         
+        # Initialize HuggingFace client
+        hf_token = os.getenv('HF_TOKEN')
+        self.client = InferenceClient(token=hf_token) if hf_token else None
+        
+        # Default model
+        self.model = "stabilityai/stable-diffusion-xl-base-1.0"
+    
+    def generate_image(self, prompt: str = None) -> dict:
+        """Actually generate an image using HuggingFace"""
+        if not self.active:
+            return {"error": "Generator is not active"}
+            
+        if not self.client:
+            return {"error": "HF_TOKEN not set"}
+        
+        try:
+            # Use the provided prompt or current_prompt
+            prompt_text = prompt or self.current_prompt or "a beautiful landscape"
+            
+            # Generate image using the new task-specific method
+            image = self.client.text_to_image(
+                prompt_text,
+                model=self.model,
+            )
+            
+            # Save to a file (optional)
+            output_path = f"output_{hash(prompt_text)}.png"
+            image.save(output_path)
+            
+            return {
+                "type": self.gen_type,
+                "prompt": prompt_text,
+                "status": "generated",
+                "path": output_path
+            }
+            
+        except Exception as e:
+            return {
+                "error": str(e),
+                "type": self.gen_type,
+                "prompt": prompt_text
+            }
+
     def start_prompter(self):
         """Start the prompter-based generation"""
         if self.active:
@@ -28,26 +80,6 @@ class VeistGenerator:
         self.active = False
         self.gen_type = 'none'
         return "Generator stopped"
-    
-    def generate_image(self, prompt: str = None) -> dict:
-        """Mock image generation"""
-        if not self.active:
-            return {"error": "Generator is not active"}
-        
-        # Mock different behavior based on gen_type
-        if self.gen_type == 'prompter':
-            return {
-                "type": "prompter",
-                "prompt": prompt or self.current_prompt,
-                "status": "generated"
-            }
-        elif self.gen_type == 'genrec':
-            return {
-                "type": "genrec",
-                "status": "generated"
-            }
-        else:
-            return {"error": "Invalid generator type"}
 
 if __name__ == "__main__":
     # Command line interface for testing
@@ -68,5 +100,7 @@ if __name__ == "__main__":
             prompt = input("Enter prompt (or press enter for default): ").strip()
             result = generator.generate_image(prompt if prompt else None)
             print(result)
+            if "path" in result:
+                print(f"Image saved to: {result['path']}")
         else:
             print("Unknown command")
