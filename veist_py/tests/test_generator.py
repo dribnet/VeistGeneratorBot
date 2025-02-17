@@ -47,6 +47,32 @@ class TestVeistGenerator(unittest.TestCase):
         # Clean up
         if output_path.exists():
             output_path.unlink()
+    
+    @unittest.skipIf(not os.getenv('HF_TOKEN'), "HF_TOKEN not set")
+    def test_reaction_system(self):
+        self.generator.start_reaction()
+        
+        # Generate initial image
+        result1 = self.generator.generate_image("test image")
+        self.assertEqual(result1["status"], "generated")
+        
+        # Add some reactions
+        reaction_result = self.generator.add_reaction(result1["path"], "happy")
+        self.assertEqual(reaction_result["status"], "added")
+        
+        # Generate new image influenced by reactions
+        result2 = self.generator.generate_image("test image")
+        self.assertIn("Based on reactions", result2["prompt"])
+        
+        # Clean up
+        if "path" in result1:
+            Path(result1["path"]).unlink()
+        if "path" in result2:
+            Path(result2["path"]).unlink()
+            
+        # Additional assertions to debug
+        if "error" in result2:
+            print(f"Generation error: {result2['error']}")
 
 if __name__ == '__main__':
     unittest.main()
