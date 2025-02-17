@@ -1,6 +1,7 @@
 import unittest
 from generator import VeistGenerator
 import os
+from pathlib import Path
 
 class TestVeistGenerator(unittest.TestCase):
     def setUp(self):
@@ -41,10 +42,11 @@ class TestVeistGenerator(unittest.TestCase):
         self.generator.start_prompter()
         result = self.generator.generate_image("a beautiful sunset")
         self.assertEqual(result["status"], "generated")
-        self.assertTrue(os.path.exists(result["path"]))
+        output_path = Path(result["path"])
+        self.assertTrue(output_path.exists())
         # Clean up
-        if "path" in result:
-            os.remove(result["path"])
+        if output_path.exists():
+            output_path.unlink()
 
 if __name__ == '__main__':
     unittest.main()

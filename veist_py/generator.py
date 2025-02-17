@@ -3,6 +3,7 @@ import os
 from PIL import Image
 from io import BytesIO
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +20,11 @@ class VeistGenerator:
         self.client = InferenceClient(token=hf_token) if hf_token else None
         
         # Default model
-        self.model = "stabilityai/stable-diffusion-xl-base-1.0"
+        self.model = "black-forest-labs/FLUX.1-schnell"
+        
+        # Ensure outputs directory exists
+        self.output_dir = Path(__file__).parent / "outputs"
+        self.output_dir.mkdir(exist_ok=True)
     
     def generate_image(self, prompt: str = None) -> dict:
         """Actually generate an image using HuggingFace"""
@@ -39,15 +44,15 @@ class VeistGenerator:
                 model=self.model,
             )
             
-            # Save to a file (optional)
-            output_path = f"output_{hash(prompt_text)}.png"
+            # Save to a file in outputs directory
+            output_path = self.output_dir / f"output_{hash(prompt_text)}.png"
             image.save(output_path)
             
             return {
                 "type": self.gen_type,
                 "prompt": prompt_text,
                 "status": "generated",
-                "path": output_path
+                "path": str(output_path)
             }
             
         except Exception as e:
