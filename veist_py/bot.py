@@ -21,6 +21,9 @@ STARTER_PROMPTS = [
     "a cyberpunk scene with neon lights"
 ]
 
+# Define meta reactions
+META_REACTIONS = ["👍", "👎", "🏁"]
+
 class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -61,31 +64,38 @@ class VeistBot(commands.Bot):
         await self.generate_and_send(initial_prompt, is_initial=True)
 
     async def collect_reactions(self):
-        """Collect reactions from the last message"""
+        """Collect reactions from the last message, excluding meta reactions"""
         if not self.last_message:
-            return []
+            return [], {}
             
         # Fetch the message again to get updated reactions
         message = await self.generation_channel.fetch_message(self.last_message.id)
         
-        # Collect all reactions
-        reactions = []
+        # Collect regular and meta reactions separately
+        regular_reactions = []
+        meta_stats = {
+            "👍": 0,  # likes
+            "👎": 0,  # dislikes
+            "🏁": 0   # finish flags
+        }
+        
         for reaction in message.reactions:
-            # Convert emoji to text description
-            if isinstance(reaction.emoji, str):
-                reactions.append(reaction.emoji)
+            emoji = str(reaction.emoji)
+            if emoji in META_REACTIONS:
+                # Subtract 1 from count to exclude bot's own reaction
+                meta_stats[emoji] = max(0, reaction.count - 1)
             else:
-                reactions.append(reaction.emoji.name)
+                regular_reactions.append(emoji)
                 
-        print(f"Collected reactions: {reactions}")  # Debug print
-        return reactions
+        print(f"Regular reactions: {regular_reactions}")  # Debug print
+        print(f"Meta reactions: {meta_stats}")  # Debug print
+        return regular_reactions, meta_stats
 
     def build_next_prompt(self, reactions):
         """Build next prompt based on previous prompt and reactions"""
         if not reactions:
             return random.choice(STARTER_PROMPTS)
             
-        # Convert reactions to prompt modifications
         reaction_text = " and ".join(reactions)
         return f"{self.last_prompt}, but more {reaction_text}"
 
@@ -98,8 +108,12 @@ class VeistBot(commands.Bot):
         try:
             # If no prompt provided and not initial, build from reactions
             if prompt is None and not is_initial:
-                reactions = await self.collect_reactions()
-                prompt = self.build_next_prompt(reactions)
+                regular_reactions, meta_stats = await self.collect_reactions()
+                prompt = self.build_next_prompt(regular_reactions)
+                
+                # Log the meta stats
+                print(f"Previous image stats - Likes: {meta_stats['👍']}, "
+                      f"Dislikes: {meta_stats['👎']}, Finish flags: {meta_stats['🏁']}")
             
             # Run the generation in a thread pool
             result = await self.loop.run_in_executor(
@@ -122,11 +136,9 @@ class VeistBot(commands.Bot):
             )
             self.last_prompt = result['prompt']
             
-            # Add some starter reactions for guidance
-            if is_initial:
-                starter_reactions = ["🔥", "❄️", "🌟", "🎨", "🌈"]
-                for reaction in starter_reactions:
-                    await self.last_message.add_reaction(reaction)
+            # Add meta reactions
+            for reaction in META_REACTIONS:
+                await self.last_message.add_reaction(reaction)
                 
         except Exception as e:
             await self.generation_channel.send(f"Error during generation: {str(e)}")
