@@ -24,6 +24,9 @@ STARTER_PROMPTS = [
 # Define meta reactions
 META_REACTIONS = ["👍", "👎", "🏁"]
 
+MAX_RETRIES = 3  # Maximum number of retries for generation
+RETRY_DELAY = 10  # Seconds to wait between retries
+
 class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -39,6 +42,7 @@ class VeistBot(commands.Bot):
         self.MAX_VARIATIONS = 3  # Changed to 3 variations
         self.last_thread_message = None
         self.last_prompt = None
+        self.current_version_message = None  # Track the current version message
 
     async def setup_hook(self):
         print("Syncing commands to guild...")
@@ -106,6 +110,32 @@ class VeistBot(commands.Bot):
         self.last_prompt = None
         await self.generate_and_send()
 
+    async def generate_with_retry(self, prompt):
+        """Attempt to generate image with retries"""
+        for attempt in range(MAX_RETRIES):
+            try:
+                result = await self.loop.run_in_executor(
+                    None, 
+                    self.generator.generate_image,
+                    prompt
+                )
+                
+                if "error" in result and "too busy" in result["error"].lower():
+                    if attempt < MAX_RETRIES - 1:  # Don't message if it's the last attempt
+                        await self.generation_channel.send(f"⏳ Server busy, retrying in {RETRY_DELAY} seconds... (Attempt {attempt + 1}/{MAX_RETRIES})")
+                        await asyncio.sleep(RETRY_DELAY)
+                        continue
+                return result
+                
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    await self.generation_channel.send(f"⚠️ Generation error, retrying in {RETRY_DELAY} seconds... (Attempt {attempt + 1}/{MAX_RETRIES})")
+                    await asyncio.sleep(RETRY_DELAY)
+                else:
+                    return {"error": str(e)}
+        
+        return {"error": "Maximum retry attempts reached"}
+
     async def generate_and_send(self, prompt=None, is_initial=False):
         """Helper method to generate and send images"""
         if self.is_generating:
@@ -114,29 +144,25 @@ class VeistBot(commands.Bot):
         self.is_generating = True
         try:
             if not self.current_thread:
-                # Starting new generation - use random prompt
                 prompt = random.choice(STARTER_PROMPTS)
             elif not is_initial:
-                # In thread - check reactions
                 regular_reactions, meta_stats = await self.collect_reactions()
                 if regular_reactions:
-                    # If there are reactions, build new prompt
                     prompt = self.build_next_prompt(regular_reactions)
                 else:
-                    # If no reactions, use last prompt
                     prompt = self.last_prompt
                 
                 print(f"Previous image stats - Likes: {meta_stats['👍']}, "
                       f"Dislikes: {meta_stats['👎']}, Finish flags: {meta_stats['🏁']}")
             
-            result = await self.loop.run_in_executor(
-                None, 
-                self.generator.generate_image,
-                prompt
-            )
+            # Use new retry method
+            result = await self.generate_with_retry(prompt)
             
             if "error" in result:
-                await self.generation_channel.send(f"Error generating image: {result['error']}")
+                error_msg = f"Error generating image: {result['error']}"
+                await self.generation_channel.send(error_msg)
+                if "too busy" in result["error"].lower():
+                    await asyncio.sleep(RETRY_DELAY)  # Wait before next attempt
                 return
 
             if not self.current_thread:
@@ -158,6 +184,13 @@ class VeistBot(commands.Bot):
                     f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
                     file=thread_file
                 )
+                
+                # Post initial "current version" in main channel
+                current_file = discord.File(result["path"])
+                self.current_version_message = await self.generation_channel.send(
+                    f"💫 Current Version (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                    file=current_file
+                )
             else:
                 # Post variation in thread
                 thread_file = discord.File(result["path"])
@@ -165,6 +198,15 @@ class VeistBot(commands.Bot):
                     f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}", 
                     file=thread_file
                 )
+                
+                # Update "current version" in main channel (only for non-final variations)
+                if self.variation_count < self.MAX_VARIATIONS - 1:
+                    await self.current_version_message.delete()
+                    current_file = discord.File(result["path"])
+                    self.current_version_message = await self.generation_channel.send(
+                        f"💫 Current Version ({self.variation_count + 1}/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                        file=current_file
+                    )
 
             # Add reactions to thread message
             for reaction in META_REACTIONS:
@@ -173,9 +215,10 @@ class VeistBot(commands.Bot):
             self.last_prompt = result['prompt']
             self.variation_count += 1
             
-            # If we've reached max variations, post final result and prepare for new thread
+            # If we've reached max variations, update to final result
             if self.variation_count >= self.MAX_VARIATIONS:
-                # Post final result in main channel
+                # Update to final result in main channel
+                await self.current_version_message.delete()
                 final_file = discord.File(result["path"])
                 await self.generation_channel.send(
                     f"✨ Final Result\nPrompt: {result['prompt']}", 
