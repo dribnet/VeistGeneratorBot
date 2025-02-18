@@ -28,13 +28,16 @@ class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        intents.reactions = True  # Make sure we can see reactions
+        intents.reactions = True
         
         super().__init__(command_prefix='!', intents=intents)
         self.generator = VeistGenerator()
         self.generation_channel = None
         self.is_generating = False
-        self.last_message = None
+        self.current_thread = None
+        self.variation_count = 0
+        self.MAX_VARIATIONS = 5
+        self.last_thread_message = None  # Track the last message in thread
         self.last_prompt = None
 
     async def setup_hook(self):
@@ -60,16 +63,15 @@ class VeistBot(commands.Bot):
         
         # Generate first image with random prompt
         initial_prompt = random.choice(STARTER_PROMPTS)
-        self.last_prompt = initial_prompt
         await self.generate_and_send(initial_prompt, is_initial=True)
 
     async def collect_reactions(self):
-        """Collect reactions from the last message, excluding meta reactions"""
-        if not self.last_message:
+        """Collect reactions from the last thread message"""
+        if not self.last_thread_message:
             return [], {}
             
         # Fetch the message again to get updated reactions
-        message = await self.generation_channel.fetch_message(self.last_message.id)
+        message = await self.current_thread.fetch_message(self.last_thread_message.id)
         
         # Collect regular and meta reactions separately
         regular_reactions = []
@@ -87,8 +89,6 @@ class VeistBot(commands.Bot):
             else:
                 regular_reactions.append(emoji)
                 
-        print(f"Regular reactions: {regular_reactions}")  # Debug print
-        print(f"Meta reactions: {meta_stats}")  # Debug print
         return regular_reactions, meta_stats
 
     def build_next_prompt(self, reactions):
@@ -106,8 +106,8 @@ class VeistBot(commands.Bot):
             
         self.is_generating = True
         try:
-            # If no prompt provided and not initial, build from reactions
-            if prompt is None and not is_initial:
+            # If in a thread and not initial, build from reactions
+            if self.current_thread and not is_initial:
                 regular_reactions, meta_stats = await self.collect_reactions()
                 prompt = self.build_next_prompt(regular_reactions)
                 
@@ -115,7 +115,7 @@ class VeistBot(commands.Bot):
                 print(f"Previous image stats - Likes: {meta_stats['👍']}, "
                       f"Dislikes: {meta_stats['👎']}, Finish flags: {meta_stats['🏁']}")
             
-            # Run the generation in a thread pool
+            # Generate the image
             result = await self.loop.run_in_executor(
                 None, 
                 self.generator.generate_image,
@@ -125,20 +125,50 @@ class VeistBot(commands.Bot):
             if "error" in result:
                 await self.generation_channel.send(f"Error generating image: {result['error']}")
                 return
-                
+
             file = discord.File(result["path"])
-            prefix = "🎨 Starting up with" if is_initial else "🎮 New generation\n"
             
-            # Send the message and store it
-            self.last_message = await self.generation_channel.send(
-                f"{prefix}Prompt: {result['prompt']}\nStatus: {result['status']}", 
-                file=file
-            )
-            self.last_prompt = result['prompt']
-            
-            # Add meta reactions
+            if not self.current_thread:
+                # Initial post in main channel
+                main_message = await self.generation_channel.send(
+                    f"🎨 New Generation\nPrompt: {result['prompt']}", 
+                    file=file
+                )
+                
+                # Create new thread
+                self.current_thread = await main_message.create_thread(
+                    name=f"Variations {self.variation_count + 1}/5",
+                    auto_archive_duration=60
+                )
+                self.variation_count = 0
+                
+                # Post initial message in thread
+                thread_file = discord.File(result["path"])
+                self.last_thread_message = await self.current_thread.send(
+                    f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                    file=thread_file
+                )
+            else:
+                # Only post in thread for variations
+                thread_file = discord.File(result["path"])
+                self.last_thread_message = await self.current_thread.send(
+                    f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}", 
+                    file=thread_file
+                )
+
+            # Add reactions to thread message
             for reaction in META_REACTIONS:
-                await self.last_message.add_reaction(reaction)
+                await self.last_thread_message.add_reaction(reaction)
+
+            self.last_prompt = result['prompt']
+            self.variation_count += 1
+            
+            # If we've reached max variations, prepare for new thread
+            if self.variation_count >= self.MAX_VARIATIONS:
+                await self.current_thread.send("🏁 Maximum variations reached! Starting new generation...")
+                await self.current_thread.edit(archived=True, locked=True)
+                self.current_thread = None
+                self.variation_count = 0
                 
         except Exception as e:
             await self.generation_channel.send(f"Error during generation: {str(e)}")
@@ -150,11 +180,27 @@ class VeistBot(commands.Bot):
         if not self.generation_channel or not self.is_ready():
             return
             
-        await self.generate_and_send()
+        # Generate if we're within variation limit or need new thread
+        if self.current_thread is None or self.variation_count < self.MAX_VARIATIONS:
+            await self.generate_and_send()
 
-    @generate_loop.before_loop
-    async def before_generate_loop(self):
-        await self.wait_until_ready()
+    async def on_reaction_add(self, reaction, user):
+        """Handle reactions"""
+        if user.bot:
+            return
+            
+        message = reaction.message
+        
+        # Only process reactions in threads
+        if not isinstance(message.channel, discord.Thread):
+            return
+            
+        # Only process reactions to our own messages
+        if message.author != self.user:
+            return
+            
+        # Process the reaction here (you can add specific logic later)
+        print(f"Reaction in thread: {reaction.emoji}")
 
 bot = VeistBot()
 
