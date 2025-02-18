@@ -36,8 +36,8 @@ class VeistBot(commands.Bot):
         self.is_generating = False
         self.current_thread = None
         self.variation_count = 0
-        self.MAX_VARIATIONS = 5
-        self.last_thread_message = None  # Track the last message in thread
+        self.MAX_VARIATIONS = 3  # Changed to 3 variations
+        self.last_thread_message = None
         self.last_prompt = None
 
     async def setup_hook(self):
@@ -99,6 +99,13 @@ class VeistBot(commands.Bot):
         reaction_text = " and ".join(reactions)
         return f"{self.last_prompt}, but more {reaction_text}"
 
+    async def start_new_generation(self):
+        """Start a fresh generation cycle"""
+        self.current_thread = None
+        self.variation_count = 0
+        self.last_prompt = None
+        await self.generate_and_send()
+
     async def generate_and_send(self, prompt=None, is_initial=False):
         """Helper method to generate and send images"""
         if self.is_generating:
@@ -106,16 +113,22 @@ class VeistBot(commands.Bot):
             
         self.is_generating = True
         try:
-            # If in a thread and not initial, build from reactions
-            if self.current_thread and not is_initial:
+            if not self.current_thread:
+                # Starting new generation - use random prompt
+                prompt = random.choice(STARTER_PROMPTS)
+            elif not is_initial:
+                # In thread - check reactions
                 regular_reactions, meta_stats = await self.collect_reactions()
-                prompt = self.build_next_prompt(regular_reactions)
+                if regular_reactions:
+                    # If there are reactions, build new prompt
+                    prompt = self.build_next_prompt(regular_reactions)
+                else:
+                    # If no reactions, use last prompt
+                    prompt = self.last_prompt
                 
-                # Log the meta stats
                 print(f"Previous image stats - Likes: {meta_stats['👍']}, "
                       f"Dislikes: {meta_stats['👎']}, Finish flags: {meta_stats['🏁']}")
             
-            # Generate the image
             result = await self.loop.run_in_executor(
                 None, 
                 self.generator.generate_image,
@@ -126,30 +139,27 @@ class VeistBot(commands.Bot):
                 await self.generation_channel.send(f"Error generating image: {result['error']}")
                 return
 
-            file = discord.File(result["path"])
-            
             if not self.current_thread:
-                # Initial post in main channel
+                # Initial post in main channel (text only)
                 main_message = await self.generation_channel.send(
-                    f"🎨 New Generation\nPrompt: {result['prompt']}", 
-                    file=file
+                    f"🎨 Starting new generation thread\nPrompt: {result['prompt']}"
                 )
                 
                 # Create new thread
                 self.current_thread = await main_message.create_thread(
-                    name=f"Variations {self.variation_count + 1}/5",
+                    name=f"Variations {self.variation_count + 1}/3",
                     auto_archive_duration=60
                 )
                 self.variation_count = 0
                 
-                # Post initial message in thread
+                # Post initial image in thread
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
                     f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
                     file=thread_file
                 )
             else:
-                # Only post in thread for variations
+                # Post variation in thread
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
                     f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}", 
@@ -163,12 +173,20 @@ class VeistBot(commands.Bot):
             self.last_prompt = result['prompt']
             self.variation_count += 1
             
-            # If we've reached max variations, prepare for new thread
+            # If we've reached max variations, post final result and prepare for new thread
             if self.variation_count >= self.MAX_VARIATIONS:
-                await self.current_thread.send("🏁 Maximum variations reached! Starting new generation...")
+                # Post final result in main channel
+                final_file = discord.File(result["path"])
+                await self.generation_channel.send(
+                    f"✨ Final Result\nPrompt: {result['prompt']}", 
+                    file=final_file
+                )
+                
+                await self.current_thread.send("🏁 Maximum variations reached! Final result posted in main channel.")
                 await self.current_thread.edit(archived=True, locked=True)
-                self.current_thread = None
-                self.variation_count = 0
+                
+                # Schedule immediate start of next generation
+                self.loop.create_task(self.start_new_generation())
                 
         except Exception as e:
             await self.generation_channel.send(f"Error during generation: {str(e)}")
@@ -180,9 +198,10 @@ class VeistBot(commands.Bot):
         if not self.generation_channel or not self.is_ready():
             return
             
-        # Generate if we're within variation limit or need new thread
-        if self.current_thread is None or self.variation_count < self.MAX_VARIATIONS:
+        if self.current_thread and self.variation_count < self.MAX_VARIATIONS:
             await self.generate_and_send()
+        elif not self.current_thread and not self.is_generating:
+            await self.start_new_generation()
 
     async def on_reaction_add(self, reaction, user):
         """Handle reactions"""
