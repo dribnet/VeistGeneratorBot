@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from generator import VeistGenerator
 import asyncio
 import random
+import argparse
 
 # Load environment variables
 load_dotenv()
@@ -28,13 +29,13 @@ MAX_RETRIES = 3  # Maximum number of retries for generation
 RETRY_DELAY = 10  # Seconds to wait between retries
 
 class VeistBot(commands.Bot):
-    def __init__(self):
+    def __init__(self, backend='huggingface'):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.reactions = True
         
         super().__init__(command_prefix='!', intents=intents)
-        self.generator = VeistGenerator()
+        self.generator = VeistGenerator(backend=backend)
         self.generation_channel = None
         self.is_generating = False
         self.current_thread = None
@@ -308,60 +309,12 @@ class VeistBot(commands.Bot):
         # Process the reaction here (you can add specific logic later)
         print(f"Reaction in thread: {reaction.emoji}")
 
-bot = VeistBot()
-
-# Admin command to force sync
-@bot.command()
-@commands.is_owner()
-async def sync(ctx):
-    print("Syncing commands...")
-    synced = await bot.tree.sync()
-    await ctx.send(f"Synced {len(synced)} command(s)")
-
-# Simple test command
-@bot.tree.command(name="ping", description="Test if the bot is responsive")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! 🏓")
-
-@bot.tree.command(name="test", description="Another test command")
-async def test(interaction: discord.Interaction):
-    await interaction.response.send_message("Test command works!")
-
-@bot.tree.command(name="generate", description="Generate an image from a prompt")
-async def generate(interaction: discord.Interaction, prompt: str):
-    # Acknowledge the command immediately
-    await interaction.response.defer()
-    
-    # Start the generator if it's not active
-    if not bot.generator.active:
-        bot.generator.start_prompter()
-    
-    # Generate the image
-    result = bot.generator.generate_image(prompt)
-    
-    if "error" in result:
-        await interaction.followup.send(f"Error generating image: {result['error']}")
-        return
-        
-    # Create discord file from the image
-    file = discord.File(result["path"])
-    
-    # Send the image with the prompt as a message
-    await interaction.followup.send(
-        f"Prompt: {result['prompt']}\nStatus: {result['status']}", 
-        file=file
-    )
-
-@bot.tree.command(name="start", description="Start the generator")
-async def start(interaction: discord.Interaction):
-    bot.generator.start_prompter()
-    await interaction.response.send_message("Generator started in prompter mode! 🎨")
-
-@bot.tree.command(name="stop", description="Stop the generator")
-async def stop(interaction: discord.Interaction):
-    bot.generator.stop()
-    await interaction.response.send_message("Generator stopped! ⏹️")
-
-# Run the bot
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--backend', choices=['huggingface', 'flux'],
+                       default='huggingface',
+                       help='Backend to use for image generation')
+    args = parser.parse_args()
+    
+    bot = VeistBot(backend=args.backend)
     bot.run(TOKEN)

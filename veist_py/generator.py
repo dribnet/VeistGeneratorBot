@@ -6,24 +6,33 @@ from dotenv import load_dotenv
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
+import torch
+from diffusers import FluxPipeline
 
 # Load environment variables
 load_dotenv()
 
 class VeistGenerator:
-    def __init__(self):
+    def __init__(self, backend='huggingface'):
         self.active = False
         self.gen_type = 'none'
         self.gen_interval = 30  # seconds
         self.current_prompt = ""
+        self.backend = backend
         
-        # Initialize HuggingFace client
-        hf_token = os.getenv('HF_TOKEN')
-        self.client = InferenceClient(token=hf_token) if hf_token else None
-        
-        # Default model
-        # self.model = "black-forest-labs/FLUX.1-schnell"
-        self.model = "stabilityai/stable-diffusion-xl-base-1.0"
+        # Initialize the appropriate backend
+        if backend == 'huggingface':
+            hf_token = os.getenv('HF_TOKEN')
+            self.client = InferenceClient(token=hf_token) if hf_token else None
+            self.model = "stabilityai/stable-diffusion-xl-base-1.0"
+        elif backend == 'flux':
+            self.pipe = FluxPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-schnell",
+                torch_dtype=torch.bfloat16
+            ).to("cuda")
+            self.model = "black-forest-labs/FLUX.1-schnell"
+        else:
+            raise ValueError(f"Unknown backend: {backend}")
         
         # Ensure outputs directory exists
         self.output_dir = Path(__file__).parent / "outputs"
@@ -67,7 +76,7 @@ class VeistGenerator:
         if not self.active:
             return {"error": "Generator is not active"}
             
-        if not self.client:
+        if self.backend == 'huggingface' and not self.client:
             return {"error": "HF_TOKEN not set"}
         
         try:
@@ -81,11 +90,21 @@ class VeistGenerator:
             else:
                 full_prompt = base_prompt
             
-            # Generate image using the new task-specific method
-            image = self.client.text_to_image(
-                full_prompt,
-                model=self.model,
-            )
+            # Generate image using the appropriate backend
+            if self.backend == 'huggingface':
+                image = self.client.text_to_image(
+                    full_prompt,
+                    model=self.model,
+                )
+            else:  # flux
+                image = self.pipe(
+                    full_prompt,
+                    width=1344,
+                    height=768,
+                    guidance_scale=0.0,
+                    num_inference_steps=4,
+                    max_sequence_length=256,
+                ).images[0]
             
             # Save to a file in outputs directory with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -106,7 +125,7 @@ class VeistGenerator:
             return {
                 "error": str(e),
                 "type": self.gen_type,
-                "prompt": full_prompt,  # Include prompt even in error case
+                "prompt": full_prompt,
                 "status": "error"
             }
 
