@@ -7,12 +7,52 @@ from generator import VeistGenerator
 import asyncio
 import random
 import argparse
+import yaml
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = discord.Object(id=os.getenv('GUILD_ID', '0'))
-CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))  # Add your channel ID to .env
+
+def load_config(config_path=None):
+    if config_path:
+        path = Path(config_path)
+    else:
+        path = Path(__file__).parent / "config.yaml"
+        
+    if not path.exists():
+        print(f"Config file not found at {path}, creating default config...")
+        # Create default config if it doesn't exist
+        default_config = {
+            "discord": {
+                "channel_id": None,
+                "channel_name": "ai-art"
+            },
+            "generation": {
+                "backend": "huggingface",
+                "seconds_per_variation": 60,
+                "max_variations": 20
+            },
+            "retry": {
+                "max_attempts": 3,
+                "delay_seconds": 10
+            }
+        }
+        with open(path, 'w') as f:
+            yaml.safe_dump(default_config, f)
+        return default_config
+    
+    print(f"Loading config from {path}")
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+# Load configuration with optional path
+CONFIG = load_config()
+
+# Update constants from config
+MAX_RETRIES = CONFIG['retry']['max_attempts']
+RETRY_DELAY = CONFIG['retry']['delay_seconds']
 
 STARTER_PROMPTS = [
     "a mysterious robot in a garden",
@@ -25,22 +65,19 @@ STARTER_PROMPTS = [
 # Define meta reactions
 META_REACTIONS = ["👍", "👎", "🏁"]
 
-MAX_RETRIES = 3  # Maximum number of retries for generation
-RETRY_DELAY = 10  # Seconds to wait between retries
-
 class VeistBot(commands.Bot):
-    def __init__(self, backend='huggingface'):
+    def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.reactions = True
         
         super().__init__(command_prefix='!', intents=intents)
-        self.generator = VeistGenerator(backend=backend)
+        self.generator = VeistGenerator(backend=CONFIG['generation']['backend'])
         self.generation_channel = None
         self.is_generating = False
         self.current_thread = None
         self.variation_count = 0
-        self.MAX_VARIATIONS = 20
+        self.MAX_VARIATIONS = CONFIG['generation']['max_variations']
         self.last_thread_message = None
         self.last_prompt = None
         self.current_version_message = None
@@ -51,16 +88,31 @@ class VeistBot(commands.Bot):
         synced = await self.tree.sync(guild=GUILD_ID)
         print(f"Synced {len(synced)} command(s)")
         
+        # Set the loop interval from config
+        self.generate_loop.change_interval(
+            seconds=CONFIG['generation']['seconds_per_variation']
+        )
         # Start the generation loop
         self.generate_loop.start()
 
     async def on_ready(self):
         print(f'{self.user} has connected to Discord!')
         
-        # Set up the generation channel
-        self.generation_channel = self.get_channel(CHANNEL_ID)
+        # Set up the generation channel using config
+        channel_id = CONFIG['discord']['channel_id']
+        if channel_id:
+            self.generation_channel = self.get_channel(int(channel_id))
+        else:
+            # Find channel by name
+            channel_name = CONFIG['discord']['channel_name']
+            for channel in self.get_all_channels():
+                if channel.name == channel_name:
+                    self.generation_channel = channel
+                    break
+        
         if not self.generation_channel:
-            print(f"Warning: Could not find channel {CHANNEL_ID}")
+            channel_id_or_name = channel_id or CONFIG['discord']['channel_name']
+            print(f"Warning: Could not find channel {channel_id_or_name}")
             return
             
         # Start the generator
@@ -281,7 +333,7 @@ class VeistBot(commands.Bot):
         finally:
             self.is_generating = False
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=None)  # We'll set the seconds in setup_hook
     async def generate_loop(self):
         if not self.generation_channel or not self.is_ready():
             return
@@ -311,10 +363,45 @@ class VeistBot(commands.Bot):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--backend', choices=['huggingface', 'flux'],
-                       default='huggingface',
-                       help='Backend to use for image generation')
+    parser.add_argument('--config', 
+                       type=str,
+                       help='Path to config file (default: config.yaml in same directory as bot.py)')
     args = parser.parse_args()
-    
-    bot = VeistBot(backend=args.backend)
+
+    # Modify load_config to accept a path parameter
+    def load_config(config_path=None):
+        if config_path:
+            path = Path(config_path)
+        else:
+            path = Path(__file__).parent / "config.yaml"
+            
+        if not path.exists():
+            print(f"Config file not found at {path}, creating default config...")
+            # Create default config if it doesn't exist
+            default_config = {
+                "discord": {
+                    "channel_id": None,
+                    "channel_name": "ai-art"
+                },
+                "generation": {
+                    "backend": "huggingface",
+                    "seconds_per_variation": 60,
+                    "max_variations": 20
+                },
+                "retry": {
+                    "max_attempts": 3,
+                    "delay_seconds": 10
+                }
+            }
+            with open(path, 'w') as f:
+                yaml.safe_dump(default_config, f)
+            return default_config
+        
+        print(f"Loading config from {path}")
+        with open(path, 'r') as f:
+            return yaml.safe_load(f)
+
+    # Load configuration with optional path
+    CONFIG = load_config(args.config)
+    bot = VeistBot()
     bot.run(TOKEN)
