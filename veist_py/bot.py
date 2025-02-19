@@ -43,7 +43,6 @@ class VeistBot(commands.Bot):
         self.last_thread_message = None
         self.last_prompt = None
         self.current_version_message = None
-        self.waiting_message = None
 
     async def setup_hook(self):
         print("Syncing commands to guild...")
@@ -137,6 +136,16 @@ class VeistBot(commands.Bot):
         
         return {"error": "Maximum retry attempts reached"}
 
+    async def update_thread_message_status(self, status: str):
+        """Update the status in the last thread message"""
+        if self.last_thread_message:
+            try:
+                current_content = self.last_thread_message.content
+                base_content = current_content.split('\n')[0]  # Keep the first line (variation info)
+                await self.last_thread_message.edit(content=f"{base_content}\nPrompt: {self.last_prompt}\n\n{status}")
+            except discord.NotFound:
+                pass
+
     async def generate_and_send(self, prompt=None, is_initial=False):
         """Helper method to generate and send images"""
         if self.is_generating:
@@ -178,25 +187,9 @@ class VeistBot(commands.Bot):
                 
                 # Check if we have any reactions
                 if not regular_reactions and all(v == 0 for v in meta_stats.values()):
-                    # Clear any existing waiting message
-                    if self.waiting_message:
-                        try:
-                            await self.waiting_message.delete()
-                        except discord.NotFound:
-                            pass
-                    # Post new waiting message
-                    self.waiting_message = await self.current_thread.send("⏳ Waiting for reactions...")
+                    await self.update_thread_message_status("⏳ Waiting for reactions...")
                     return
                 
-                # Clear waiting message if it exists
-                if self.waiting_message:
-                    try:
-                        await self.waiting_message.delete()
-                    except discord.NotFound:
-                        pass
-                    self.waiting_message = None
-                
-                # Build next prompt
                 if regular_reactions:
                     prompt = self.build_next_prompt(regular_reactions)
                 else:
@@ -221,10 +214,10 @@ class VeistBot(commands.Bot):
                 )
                 self.variation_count = 0
                 
-                # Post initial image
+                # Post initial image with status below
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
-                    f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                    f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}\n\n🔄 Collecting feedback...", 
                     file=thread_file
                 )
                 
@@ -235,10 +228,20 @@ class VeistBot(commands.Bot):
                     file=current_file
                 )
             else:
-                # Post variation
+                # Clear status from previous message
+                if self.last_thread_message:
+                    try:
+                        current_content = self.last_thread_message.content
+                        base_content = current_content.split('\n')[0]  # Keep the first line (variation info)
+                        prompt_line = current_content.split('\n')[1]  # Keep the prompt line
+                        await self.last_thread_message.edit(content=f"{base_content}\n{prompt_line}")
+                    except (discord.NotFound, IndexError):
+                        pass
+                
+                # Post variation with status below
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
-                    f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}", 
+                    f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}\n\n🔄 Collecting feedback...", 
                     file=thread_file
                 )
                 
