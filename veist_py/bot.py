@@ -9,6 +9,7 @@ import random
 import argparse
 import yaml
 from pathlib import Path
+from reaction_merging import create_merger
 
 # Load environment variables
 load_dotenv()
@@ -89,6 +90,7 @@ class VeistBot(commands.Bot):
             backend=CONFIG['generation']['backend'],
             debug=CONFIG['display']['debug_output']
         )
+        self.reaction_merger = create_merger(CONFIG['generation']['reaction_merging'])
         self.generation_channel = None
         self.is_generating = False
         self.current_thread = None
@@ -141,13 +143,13 @@ class VeistBot(commands.Bot):
     async def collect_reactions(self):
         """Collect reactions from the last thread message"""
         if not self.last_thread_message:
-            return [], {}
+            return {}, {}
             
         # Fetch the message again to get updated reactions
         message = await self.current_thread.fetch_message(self.last_thread_message.id)
         
         # Collect regular and meta reactions separately
-        regular_reactions = []
+        regular_reactions = {}
         meta_stats = {
             "👍": 0,  # likes
             "👎": 0,  # dislikes
@@ -156,11 +158,12 @@ class VeistBot(commands.Bot):
         
         for reaction in message.reactions:
             emoji = str(reaction.emoji)
+            count = reaction.count
+            
             if emoji in META_REACTIONS:
-                # Subtract 1 from count to exclude bot's own reaction
-                meta_stats[emoji] = max(0, reaction.count - 1)
+                meta_stats[emoji] = count
             else:
-                regular_reactions.append(emoji)
+                regular_reactions[emoji] = count
                 
         return regular_reactions, meta_stats
 
@@ -168,9 +171,8 @@ class VeistBot(commands.Bot):
         """Build next prompt based on previous prompt and reactions"""
         if not reactions:
             return random.choice(STARTER_PROMPTS)
-            
-        reaction_text = " and ".join(reactions)
-        return f"{self.last_prompt}, but more {reaction_text}"
+        
+        return self.reaction_merger.merge(self.last_prompt, reactions)
 
     async def start_new_generation(self):
         """Start a fresh generation cycle"""
@@ -254,15 +256,13 @@ class VeistBot(commands.Bot):
                         await self.current_thread.send(f"Error processing early completion: {str(e)}")
                         return
                 
-                # Check if we have any reactions
-                if not regular_reactions and all(v == 0 for v in meta_stats.values()):
+                # Check if we have any non-meta reactions
+                if not any(count > 0 for count in regular_reactions.values()):
                     await self.update_thread_message_status("⏳ Waiting for reactions...")
                     return
                 
-                if regular_reactions:
-                    prompt = self.build_next_prompt(regular_reactions)
-                else:
-                    prompt = self.last_prompt
+                # Only proceed if we have actual reactions
+                prompt = self.build_next_prompt(regular_reactions)
             
             # Generate image
             result = await self.generate_with_retry(prompt)

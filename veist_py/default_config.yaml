@@ -8,6 +8,7 @@ generation:
   backend: "huggingface"  # Options: huggingface, flux
   seconds_per_variation: 60
   max_variations: 20
+  reaction_merging: "append"  # Options: "append" (more X, more Y, more Z)
 
 # Display Settings
 display:

@@ -30,7 +30,9 @@ class VeistGenerator:
             self.pipe = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-schnell",
                 torch_dtype=torch.bfloat16
-            ).to("cuda")
+            )
+            if torch.cuda.is_available():
+                self.pipe = self.pipe.to("cuda")
             self.model = "black-forest-labs/FLUX.1-schnell"
         else:
             raise ValueError(f"Unknown backend: {backend}")
@@ -103,8 +105,8 @@ class VeistGenerator:
             else:  # flux
                 image = self.pipe(
                     full_prompt,
-                    width=1344,
-                    height=768,
+                    width=1344/4,
+                    height=768/4,
                     guidance_scale=0.0,
                     num_inference_steps=4,
                     max_sequence_length=256,
