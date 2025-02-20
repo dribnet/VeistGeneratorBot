@@ -32,7 +32,7 @@ class VeistGenerator:
                 torch_dtype=torch.bfloat16
             )
             if torch.cuda.is_available():
-                self.pipe = self.pipe.to("cuda")
+                self.pipe = self.pipe.to("cuda:0")
             self.model = "black-forest-labs/FLUX.1-schnell"
         else:
             raise ValueError(f"Unknown backend: {backend}")
@@ -105,8 +105,8 @@ class VeistGenerator:
             else:  # flux
                 image = self.pipe(
                     full_prompt,
-                    width=1344/4,
-                    height=768/4,
+                    width=1344,
+                    height=768,
                     guidance_scale=0.0,
                     num_inference_steps=4,
                     max_sequence_length=256,
@@ -114,7 +114,7 @@ class VeistGenerator:
             
             # Save to a file in outputs directory with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = self.output_dir / f"output_{timestamp}_{hash(full_prompt)}.png"
+            output_path = self.output_dir / f"output_{timestamp}_{hash(full_prompt)}.jpg"
             image.save(output_path)
             
             # Track this as the last generated image

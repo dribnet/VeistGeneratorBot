@@ -35,13 +35,15 @@ Here are your prompt and reactions:
 
 class DeepseekMerger(ReactionMerger):
     def __init__(self):
-        # self.model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
-        self.model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+        self.model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+        # self.model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         # model_name = "google/gemma-2-2b-it"
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         # model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.float)
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+        if torch.cuda.is_available():
+            self.model = self.model.to("cuda:1")
 
     """Simple append strategy that adds 'more X' for each reaction"""
     def merge(self, prompt: str, reactions: Dict[str, int]) -> str:
@@ -60,7 +62,8 @@ class DeepseekMerger(ReactionMerger):
             print("No active reactions after filtering, returning original prompt")
             return prompt
         
-        reactions_string = json.dumps(reactions)
+        #reactions_string = json.dumps(reactions)
+        reactions_string = str(reactions)
         prompt_suffix = f'prompt="{prompt}"\nreations={reactions_string}\n'
         prompt = prompt_prefix + prompt_suffix
 
@@ -68,10 +71,12 @@ class DeepseekMerger(ReactionMerger):
             {"role": "user", "content": prompt},
          ]
         tokenized_chat = self.tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt")
+        if torch.cuda.is_available():
+            tokenized_chat = tokenized_chat.to("cuda:1")
         outputs = self.model.generate(tokenized_chat, max_new_tokens=1024)
 
         raw_output = self.tokenizer.decode(outputs[0])
-        print("raw_outputs: {raw_output}")
+        print(f"raw_outputs: {raw_output}")
 
         # Deepseek
         output_pair = raw_output.split('</think>')

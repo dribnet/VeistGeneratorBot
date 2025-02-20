@@ -164,10 +164,10 @@ class VeistBot(commands.Bot):
             else:
                 regular_reactions[emoji] = count
                 
-        if CONFIG['display']['debug_output']:
-            print(f"Reaction check:")
-            print(f"Heart count: {meta_stats['❤️']}")
-            print(f"Regular reactions: {regular_reactions}")
+        # if CONFIG['display']['debug_output']:
+            # print(f"Reaction check:")
+            # print(f"Heart count: {meta_stats['❤️']}")
+            # print(f"Regular reactions: {regular_reactions}")
             
         return regular_reactions, meta_stats
 
