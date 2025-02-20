@@ -77,7 +77,7 @@ STARTER_PROMPTS = [
 ]
 
 # Define meta reactions
-META_REACTIONS = ["👍", "👎", "🏁"]
+META_REACTIONS = ["❤️"]  # Just the red heart
 
 class VeistBot(commands.Bot):
     def __init__(self):
@@ -151,9 +151,7 @@ class VeistBot(commands.Bot):
         # Collect regular and meta reactions separately
         regular_reactions = {}
         meta_stats = {
-            "👍": 0,  # likes
-            "👎": 0,  # dislikes
-            "🏁": 0   # finish flags
+            "❤️": 0  # hearts
         }
         
         for reaction in message.reactions:
@@ -166,10 +164,10 @@ class VeistBot(commands.Bot):
             else:
                 regular_reactions[emoji] = count
                 
-        # if CONFIG['display']['debug_output']:
-        #     print(f"Early completion check:")
-        #     print(f"Meta stats: {meta_stats}")
-        #     print(f"Regular reactions: {regular_reactions}")
+        if CONFIG['display']['debug_output']:
+            print(f"Reaction check:")
+            print(f"Heart count: {meta_stats['❤️']}")
+            print(f"Regular reactions: {regular_reactions}")
             
         return regular_reactions, meta_stats
 
@@ -235,17 +233,14 @@ class VeistBot(commands.Bot):
             elif not is_initial:
                 regular_reactions, meta_stats = await self.collect_reactions()
                 
-                if CONFIG['display']['debug_output']:
-                    print(f"Early completion check:")
-                    print(f"Meta stats: {meta_stats}")
-                    print(f"Regular reactions: {regular_reactions}")
+                # Calculate total regular reactions
+                total_regular = sum(regular_reactions.values())
+                heart_count = meta_stats['❤️']
                 
-                # Early completion check
-                if (meta_stats['👍'] == 0 and 
-                    meta_stats['👎'] == 0 and 
-                    meta_stats['🏁'] > 0):
+                # Early completion check - hearts outnumber other reactions
+                if heart_count > total_regular:
                     if CONFIG['display']['debug_output']:
-                        print("Early completion conditions met!")
+                        print(f"Early completion: {heart_count} hearts > {total_regular} regular reactions")
                     try:
                         if self.last_thread_message and self.last_thread_message.attachments:
                             attachment = self.last_thread_message.attachments[0]
@@ -255,12 +250,12 @@ class VeistBot(commands.Bot):
                             final_file = discord.File(temp_filename)
                             await self.current_version_message.delete()
                             await self.generation_channel.send(
-                                f"✨ Final Result (by request)\nPrompt: {self.last_prompt}", 
+                                f"✨ Final Result (chosen with ❤️)\nPrompt: {self.last_prompt}", 
                                 file=final_file
                             )
                             os.remove(temp_filename)
                             
-                            await self.current_thread.send("🏁 Final result posted in main channel.")
+                            await self.current_thread.send("❤️ Final result posted in main channel.")
                             await self.current_thread.edit(archived=True, locked=True)
                             
                             self.loop.create_task(self.start_new_generation())
