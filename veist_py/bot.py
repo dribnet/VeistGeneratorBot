@@ -16,36 +16,49 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = discord.Object(id=os.getenv('GUILD_ID', '0'))
 
 def load_config(config_path=None):
+    # Load default configuration
+    default_config_path = Path(__file__).parent / "default_config.yaml"
+    with open(default_config_path, 'r') as f:
+        default_config = yaml.safe_load(f)
+
+    # Determine user config path
     if config_path:
-        path = Path(config_path)
+        user_config_path = Path(config_path)
     else:
-        path = Path(__file__).parent / "config.yaml"
-        
-    if not path.exists():
-        print(f"Config file not found at {path}, creating default config...")
-        # Create default config if it doesn't exist
-        default_config = {
-            "discord": {
-                "channel_id": None,
-                "channel_name": "ai-art"
-            },
-            "generation": {
-                "backend": "huggingface",
-                "seconds_per_variation": 60,
-                "max_variations": 20
-            },
-            "retry": {
-                "max_attempts": 3,
-                "delay_seconds": 10
-            }
-        }
-        with open(path, 'w') as f:
+        user_config_path = Path(__file__).parent / "config.yaml"
+            
+    # If user config doesn't exist, create it from default
+    if not user_config_path.exists():
+        print(f"Config file not found at {user_config_path}, creating from default config...")
+        with open(user_config_path, 'w') as f:
             yaml.safe_dump(default_config, f)
         return default_config
     
-    print(f"Loading config from {path}")
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+    # Load user config and merge with defaults
+    print(f"Loading config from {user_config_path}")
+    with open(user_config_path, 'r') as f:
+        user_config = yaml.safe_load(f)
+
+    # Recursively merge user config with defaults
+    def merge_configs(default, user):
+        merged = default.copy()
+        for key, value in user.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = merge_configs(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
+
+    # Merge user config with defaults
+    final_config = merge_configs(default_config, user_config)
+    
+    # Optionally save the merged config if it's different from the user's config
+    if final_config != user_config:
+        print("Updating config file with new default values...")
+        with open(user_config_path, 'w') as f:
+            yaml.safe_dump(final_config, f)
+
+    return final_config
 
 # Load configuration with optional path
 CONFIG = load_config()
@@ -72,7 +85,10 @@ class VeistBot(commands.Bot):
         intents.reactions = True
         
         super().__init__(command_prefix='!', intents=intents)
-        self.generator = VeistGenerator(backend=CONFIG['generation']['backend'])
+        self.generator = VeistGenerator(
+            backend=CONFIG['generation']['backend'],
+            debug=CONFIG['display']['debug_output']
+        )
         self.generation_channel = None
         self.is_generating = False
         self.current_thread = None
@@ -257,9 +273,11 @@ class VeistBot(commands.Bot):
 
             if not self.current_thread:
                 # Initial post and thread creation
-                main_message = await self.generation_channel.send(
-                    f"🎨 Starting new generation thread\nPrompt: {result['prompt']}"
-                )
+                main_message_content = "🎨 Starting new generation thread"
+                if CONFIG['display']['prompt_visibility'] == "Full":
+                    main_message_content += f"\nPrompt: {result['prompt']}"
+                    
+                main_message = await self.generation_channel.send(main_message_content)
                 
                 self.current_thread = await main_message.create_thread(
                     name="Variations",
@@ -268,16 +286,25 @@ class VeistBot(commands.Bot):
                 self.variation_count = 0
                 
                 # Post initial image with status below
+                message_content = f"Initial variation (1/{self.MAX_VARIATIONS})"
+                if CONFIG['display']['prompt_visibility'] == "Full":
+                    message_content += f"\nPrompt: {result['prompt']}"
+                message_content += "\n\n🔄 Collecting feedback..."
+                
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
-                    f"Initial variation (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}\n\n🔄 Collecting feedback...", 
+                    message_content, 
                     file=thread_file
                 )
                 
                 # Post current version
+                current_version_content = f"💫 Current Version (1/{self.MAX_VARIATIONS})"
+                if CONFIG['display']['prompt_visibility'] == "Full":
+                    current_version_content += f"\nPrompt: {result['prompt']}"
+                
                 current_file = discord.File(result["path"])
                 self.current_version_message = await self.generation_channel.send(
-                    f"💫 Current Version (1/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                    current_version_content,
                     file=current_file
                 )
             else:
@@ -286,24 +313,36 @@ class VeistBot(commands.Bot):
                     try:
                         current_content = self.last_thread_message.content
                         base_content = current_content.split('\n')[0]  # Keep the first line (variation info)
-                        prompt_line = current_content.split('\n')[1]  # Keep the prompt line
-                        await self.last_thread_message.edit(content=f"{base_content}\n{prompt_line}")
+                        if CONFIG['display']['prompt_visibility'] == "Full":
+                            prompt_line = current_content.split('\n')[1]  # Keep the prompt line
+                            await self.last_thread_message.edit(content=f"{base_content}\n{prompt_line}")
+                        else:
+                            await self.last_thread_message.edit(content=base_content)
                     except (discord.NotFound, IndexError):
                         pass
                 
                 # Post variation with status below
+                message_content = f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}"
+                if CONFIG['display']['prompt_visibility'] == "Full":
+                    message_content += f"\nPrompt: {result['prompt']}"
+                message_content += "\n\n🔄 Collecting feedback..."
+                
                 thread_file = discord.File(result["path"])
                 self.last_thread_message = await self.current_thread.send(
-                    f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}\nPrompt: {result['prompt']}\n\n🔄 Collecting feedback...", 
+                    message_content,
                     file=thread_file
                 )
                 
                 # Update current version
                 if self.variation_count < self.MAX_VARIATIONS - 1:
                     await self.current_version_message.delete()
+                    current_version_content = f"💫 Current Version ({self.variation_count + 1}/{self.MAX_VARIATIONS})"
+                    if CONFIG['display']['prompt_visibility'] == "Full":
+                        current_version_content += f"\nPrompt: {result['prompt']}"
+                    
                     current_file = discord.File(result["path"])
                     self.current_version_message = await self.generation_channel.send(
-                        f"💫 Current Version ({self.variation_count + 1}/{self.MAX_VARIATIONS})\nPrompt: {result['prompt']}", 
+                        current_version_content,
                         file=current_file
                     )
 
@@ -358,50 +397,19 @@ class VeistBot(commands.Bot):
         if message.author != self.user:
             return
             
-        # Process the reaction here (you can add specific logic later)
-        print(f"Reaction in thread: {reaction.emoji}")
+        if CONFIG['display']['debug_output']:
+            print(f"Reaction in thread: {reaction.emoji}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', 
-                       type=str,
-                       help='Path to config file (default: config.yaml in same directory as bot.py)')
+    parser = argparse.ArgumentParser(description='Run the Veist Discord bot')
+    parser.add_argument('config', nargs='?', help='Path to config file')
+    parser.add_argument('--config', dest='config_flag', help='Path to config file (alternative syntax)')
     args = parser.parse_args()
 
-    # Modify load_config to accept a path parameter
-    def load_config(config_path=None):
-        if config_path:
-            path = Path(config_path)
-        else:
-            path = Path(__file__).parent / "config.yaml"
-            
-        if not path.exists():
-            print(f"Config file not found at {path}, creating default config...")
-            # Create default config if it doesn't exist
-            default_config = {
-                "discord": {
-                    "channel_id": None,
-                    "channel_name": "ai-art"
-                },
-                "generation": {
-                    "backend": "huggingface",
-                    "seconds_per_variation": 60,
-                    "max_variations": 20
-                },
-                "retry": {
-                    "max_attempts": 3,
-                    "delay_seconds": 10
-                }
-            }
-            with open(path, 'w') as f:
-                yaml.safe_dump(default_config, f)
-            return default_config
-        
-        print(f"Loading config from {path}")
-        with open(path, 'r') as f:
-            return yaml.safe_load(f)
-
+    # Use either positional or --config argument
+    config_path = args.config or args.config_flag
+    
     # Load configuration with optional path
-    CONFIG = load_config(args.config)
+    CONFIG = load_config(config_path)
     bot = VeistBot()
     bot.run(TOKEN)

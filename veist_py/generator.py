@@ -13,12 +13,13 @@ from diffusers import FluxPipeline
 load_dotenv()
 
 class VeistGenerator:
-    def __init__(self, backend='huggingface'):
+    def __init__(self, backend='huggingface', debug=False):
         self.active = False
         self.gen_type = 'none'
         self.gen_interval = 30  # seconds
         self.current_prompt = ""
         self.backend = backend
+        self.debug = debug
         
         # Initialize the appropriate backend
         if backend == 'huggingface':
@@ -89,6 +90,9 @@ class VeistGenerator:
                 full_prompt = f"{base_prompt}. {reaction_context}".strip()
             else:
                 full_prompt = base_prompt
+            
+            if self.debug:
+                print(f"Generating {self.backend} image with full prompt: {full_prompt}")
             
             # Generate image using the appropriate backend
             if self.backend == 'huggingface':

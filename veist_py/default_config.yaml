@@ -1,0 +1,20 @@
+# Discord Bot Configuration
+discord:
+  channel_id: null  # If null, will use channel_name instead
+  channel_name: "ai-art"  # Only used if channel_id is null
+
+# Generation Settings
+generation:
+  backend: "huggingface"  # Options: huggingface, flux
+  seconds_per_variation: 60
+  max_variations: 20
+
+# Display Settings
+display:
+  prompt_visibility: "None"  # Options: "Full", "None"
+  debug_output: false
+
+# Advanced Settings
+retry:
+  max_attempts: 3
+  delay_seconds: 10 
