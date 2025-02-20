@@ -161,10 +161,16 @@ class VeistBot(commands.Bot):
             count = reaction.count
             
             if emoji in META_REACTIONS:
-                meta_stats[emoji] = count
+                # Subtract 1 from meta reactions to account for bot's own reaction
+                meta_stats[emoji] = max(0, count - 1)
             else:
                 regular_reactions[emoji] = count
                 
+        # if CONFIG['display']['debug_output']:
+        #     print(f"Early completion check:")
+        #     print(f"Meta stats: {meta_stats}")
+        #     print(f"Regular reactions: {regular_reactions}")
+            
         return regular_reactions, meta_stats
 
     def build_next_prompt(self, reactions):
@@ -229,10 +235,17 @@ class VeistBot(commands.Bot):
             elif not is_initial:
                 regular_reactions, meta_stats = await self.collect_reactions()
                 
+                if CONFIG['display']['debug_output']:
+                    print(f"Early completion check:")
+                    print(f"Meta stats: {meta_stats}")
+                    print(f"Regular reactions: {regular_reactions}")
+                
                 # Early completion check
                 if (meta_stats['👍'] == 0 and 
                     meta_stats['👎'] == 0 and 
                     meta_stats['🏁'] > 0):
+                    if CONFIG['display']['debug_output']:
+                        print("Early completion conditions met!")
                     try:
                         if self.last_thread_message and self.last_thread_message.attachments:
                             attachment = self.last_thread_message.attachments[0]
