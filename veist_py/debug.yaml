@@ -7,7 +7,7 @@ display:
 generation:
   backend: huggingface
   max_variations: 10
-  reaction_merging: append
+  reaction_merging: deepseek
   seconds_per_variation: 30
 retry:
   delay_seconds: 10
