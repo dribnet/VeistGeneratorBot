@@ -99,6 +99,14 @@ class VeistBot(commands.Bot):
         self.last_thread_message = None
         self.last_prompt = None
         self.current_version_message = None
+        
+        # Add progress bar related attributes
+        self.waiting_message_sent = False
+        self.timer_message = None
+        self.PROGRESS_SEGMENTS = 4  # Number of segments in the progress bar
+        self.EMPTY_BLOCK = "⬜"     # Empty block for progress bar
+        self.FILLED_BLOCK = "🟩"    # Filled block for progress bar
+        self.waiting_for_feedback = False
 
     async def setup_hook(self):
         print("Syncing commands to guild...")
@@ -211,15 +219,22 @@ class VeistBot(commands.Bot):
         
         return {"error": "Maximum retry attempts reached"}
 
-    async def update_thread_message_status(self, status: str):
-        """Update the status in the last thread message"""
+    async def update_thread_message_status(self, status_text):
+        """Update the status text on the last thread message"""
         if self.last_thread_message:
             try:
-                current_content = self.last_thread_message.content
-                base_content = current_content.split('\n')[0]  # Keep the first line (variation info)
-                await self.last_thread_message.edit(content=f"{base_content}\nPrompt: {self.last_prompt}\n\n{status}")
-            except discord.NotFound:
-                pass
+                content = self.last_thread_message.content
+                # Replace the last line (status line)
+                lines = content.split('\n')
+                if len(lines) > 1:
+                    lines[-1] = status_text
+                    new_content = '\n'.join(lines)
+                else:
+                    new_content = f"{content}\n{status_text}"
+                    
+                await self.last_thread_message.edit(content=new_content)
+            except Exception as e:
+                print(f"Error updating thread message: {e}")
 
     async def generate_and_send(self, prompt=None, is_initial=False):
         """Helper method to generate and send images"""
@@ -227,20 +242,23 @@ class VeistBot(commands.Bot):
             return
             
         self.is_generating = True
+        self.waiting_for_feedback = False
         try:
             if not self.current_thread:
                 prompt = random.choice(STARTER_PROMPTS)
             elif not is_initial:
                 regular_reactions, meta_stats = await self.collect_reactions()
                 
-                # Calculate total regular reactions
-                total_regular = sum(regular_reactions.values())
-                heart_count = meta_stats['❤️']
+                if CONFIG['display']['debug_output']:
+                    print(f"Early completion check:")
+                    print(f"Meta stats: {meta_stats}")
+                    print(f"Regular reactions: {regular_reactions}")
                 
-                # Early completion check - hearts outnumber other reactions
-                if heart_count > total_regular:
+                # Early completion check - only require heart and no regular reactions
+                if (meta_stats['❤️'] > 0 and 
+                    sum(regular_reactions.values()) == 0):
                     if CONFIG['display']['debug_output']:
-                        print(f"Early completion: {heart_count} hearts > {total_regular} regular reactions")
+                        print("Early completion conditions met!")
                     try:
                         if self.last_thread_message and self.last_thread_message.attachments:
                             attachment = self.last_thread_message.attachments[0]
@@ -258,6 +276,11 @@ class VeistBot(commands.Bot):
                             await self.current_thread.send("❤️ Final result posted in main channel.")
                             await self.current_thread.edit(archived=True, locked=True)
                             
+                            # Clean up timer message
+                            if self.timer_message:
+                                await self.timer_message.delete()
+                                self.timer_message = None
+                                
                             self.loop.create_task(self.start_new_generation())
                             return
                     except Exception as e:
@@ -267,6 +290,7 @@ class VeistBot(commands.Bot):
                 # Check if we have any non-meta reactions
                 if not any(count > 0 for count in regular_reactions.values()):
                     await self.update_thread_message_status("⏳ Waiting for reactions...")
+                    self.waiting_for_feedback = True
                     return
                 
                 # Only proceed if we have actual reactions
@@ -375,20 +399,116 @@ class VeistBot(commands.Bot):
                 
                 self.loop.create_task(self.start_new_generation())
 
+            # Clean up timer message when generating a new image
+            if self.timer_message:
+                await self.timer_message.delete()
+                self.timer_message = None
+
         except Exception as e:
             await self.generation_channel.send(f"Error during generation: {str(e)}")
         finally:
             self.is_generating = False
 
-    @tasks.loop(seconds=None)  # We'll set the seconds in setup_hook
+    @tasks.loop(seconds=60)  # Default interval, will be changed in setup_hook
     async def generate_loop(self):
-        if not self.generation_channel or not self.is_ready():
+        """Main generation loop"""
+        if not self.generation_channel:
             return
             
-        if self.current_thread and self.variation_count < self.MAX_VARIATIONS:
-            await self.generate_and_send()
-        elif not self.current_thread and not self.is_generating:
+        if not self.current_thread:
             await self.start_new_generation()
+        else:
+            await self.generate_and_send()
+            
+    @generate_loop.before_loop
+    async def before_generate_loop(self):
+        await self.wait_until_ready()
+        
+        # Find the generation channel
+        channel_id = CONFIG['discord']['channel_id']
+        channel_name = CONFIG['discord']['channel_name']
+        
+        if channel_id:
+            self.generation_channel = self.get_channel(channel_id)
+        else:
+            # Find channel by name
+            for guild in self.guilds:
+                channel = discord.utils.get(guild.text_channels, name=channel_name)
+                if channel:
+                    self.generation_channel = channel
+                    break
+                    
+        if not self.generation_channel:
+            print(f"Could not find generation channel (ID: {channel_id}, Name: {channel_name})")
+            self.generate_loop.cancel()
+            return
+            
+        print(f"Found generation channel: {self.generation_channel.name}")
+        
+        # Start the progress bar update loop
+        self.update_progress_bar.start()
+
+    @tasks.loop(seconds=5)
+    async def update_progress_bar(self):
+        """Update the progress bar to show time until next generation"""
+        if not self.generation_channel or not self.current_thread:
+            return
+            
+        # If we're currently generating, show a generating message instead of countdown
+        if self.is_generating:
+            status = "🔄 Generating new image..."
+            
+            # Update the thread message
+            await self.update_thread_message_status(status)
+            
+            # Update or create timer message in main channel
+            if not self.timer_message:
+                self.timer_message = await self.generation_channel.send("🔄 Generating new image...")
+            else:
+                try:
+                    await self.timer_message.edit(content="🔄 Generating new image...")
+                except:
+                    # If message was deleted, create a new one
+                    self.timer_message = await self.generation_channel.send("🔄 Generating new image...")
+            return
+            
+        # Calculate time until next generation
+        time_left = self.generate_loop.next_iteration - discord.utils.utcnow()
+        if time_left.total_seconds() <= 0:
+            return
+            
+        # Calculate progress (0.0 to 1.0)
+        interval = CONFIG['generation']['seconds_per_variation']
+        progress = 1.0 - (time_left.total_seconds() / interval)
+        
+        # Create progress bar
+        filled_segments = int(progress * self.PROGRESS_SEGMENTS)
+        empty_segments = self.PROGRESS_SEGMENTS - filled_segments
+        progress_bar = self.FILLED_BLOCK * filled_segments + self.EMPTY_BLOCK * empty_segments
+        
+        # Format time left
+        minutes = int(time_left.total_seconds() // 60)
+        seconds = int(time_left.total_seconds() % 60)
+        time_str = f"{minutes:01d}:{seconds:02d}"
+        
+        # Create status message
+        if self.waiting_for_feedback:
+            status = f"⏳ Waiting for reactions... ({time_str} until next check) {progress_bar}"
+        else:
+            status = f"⏱️ Next variation in {time_str} {progress_bar}"
+        
+        # Update the message
+        await self.update_thread_message_status(status)
+        
+        # Create or update timer message in main channel
+        if not self.timer_message:
+            self.timer_message = await self.generation_channel.send(f"⏱️ Next generation in {time_str} {progress_bar}")
+        else:
+            try:
+                await self.timer_message.edit(content=f"⏱️ Next generation in {time_str} {progress_bar}")
+            except:
+                # If message was deleted, create a new one
+                self.timer_message = await self.generation_channel.send(f"⏱️ Next generation in {time_str} {progress_bar}")
 
     async def on_reaction_add(self, reaction, user):
         """Handle reactions"""
