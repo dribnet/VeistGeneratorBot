@@ -8,6 +8,8 @@ from typing import Dict, List
 from datetime import datetime
 import torch
 from diffusers import FluxPipeline
+import replicate
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +36,11 @@ class VeistGenerator:
             if torch.cuda.is_available():
                 self.pipe = self.pipe.to("cuda:0")
             self.model = "black-forest-labs/FLUX.1-schnell"
+        elif backend == 'replicate_flux_schnell':
+            # Check if REPLICATE_API_TOKEN is set
+            if not os.getenv('REPLICATE_API_TOKEN'):
+                raise ValueError("REPLICATE_API_TOKEN not set in environment variables")
+            self.model = "black-forest-labs/flux-schnell"
         else:
             raise ValueError(f"Unknown backend: {backend}")
         
@@ -102,7 +109,7 @@ class VeistGenerator:
                     full_prompt,
                     model=self.model,
                 )
-            else:  # flux
+            elif self.backend == 'flux':
                 image = self.pipe(
                     full_prompt,
                     width=1344,
@@ -111,6 +118,30 @@ class VeistGenerator:
                     num_inference_steps=4,
                     max_sequence_length=256,
                 ).images[0]
+            elif self.backend == 'replicate_flux_schnell':
+                # Use replicate API
+                input = {
+                    "prompt": full_prompt,
+                    "aspect_ratio": "16:9",
+                    "output_format": "jpg",
+                    "disable_safety_checker": True,
+                }
+                
+                output = replicate.run(
+                    "black-forest-labs/flux-schnell",
+                    input=input
+                )
+                
+                # Replicate returns a generator, get the first item
+                image_url = next(iter(output))
+                
+                # Download the image
+                response = requests.get(image_url)
+                if response.status_code != 200:
+                    raise Exception(f"Failed to download image: {response.status_code}")
+                
+                # Convert to PIL Image
+                image = Image.open(BytesIO(response.content))
             
             # Save to a file in outputs directory with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

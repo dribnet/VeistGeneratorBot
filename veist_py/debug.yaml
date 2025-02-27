@@ -5,9 +5,9 @@ display:
   debug_output: true
   prompt_visibility: None
 generation:
-  backend: huggingface
+  backend: replicate_flux_schnell
   max_variations: 10
-  reaction_merging: deepseek
+  reaction_merging: append
   seconds_per_variation: 30
 retry:
   delay_seconds: 10
