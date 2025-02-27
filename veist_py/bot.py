@@ -243,7 +243,21 @@ class VeistBot(commands.Bot):
             
         self.is_generating = True
         self.waiting_for_feedback = False
+        
         try:
+            # Immediately show generating message in both thread and main channel
+            if self.current_thread and self.last_thread_message:
+                await self.update_thread_message_status("🔄 Generating new image...")
+            
+            # Create or update timer message in main channel immediately
+            if self.timer_message:
+                try:
+                    await self.timer_message.edit(content="🔄 Generating new image...")
+                except:
+                    self.timer_message = await self.generation_channel.send("🔄 Generating new image...")
+            else:
+                self.timer_message = await self.generation_channel.send("🔄 Generating new image...")
+            
             if not self.current_thread:
                 prompt = random.choice(STARTER_PROMPTS)
             elif not is_initial:
