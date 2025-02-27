@@ -3,11 +3,11 @@ discord:
   channel_name: null
 display:
   debug_output: true
-  prompt_visibility: None
+  prompt_visibility: Full
 generation:
   backend: replicate_flux_schnell
   max_variations: 10
-  reaction_merging: append
+  reaction_merging: deepseek_replicate
   seconds_per_variation: 30
 retry:
   delay_seconds: 10
