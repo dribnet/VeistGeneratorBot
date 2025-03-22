@@ -332,7 +332,7 @@ class VeistBot(commands.Bot):
                 self.variation_count = 0
                 
                 # Post initial image with status below
-                message_content = f"Initial variation (1/{self.MAX_VARIATIONS})"
+                message_content = f"Initial variation"
                 if CONFIG['display']['prompt_visibility'] == "Full":
                     message_content += f"\nPrompt: {result['prompt']}"
                 message_content += "\n\n🔄 Collecting feedback..."
@@ -344,7 +344,7 @@ class VeistBot(commands.Bot):
                 )
                 
                 # Post current version
-                current_version_content = f"💫 Current Version (1/{self.MAX_VARIATIONS})"
+                current_version_content = f"💫 Current Version"
                 if CONFIG['display']['prompt_visibility'] == "Full":
                     current_version_content += f"\nPrompt: {result['prompt']}"
                 
@@ -368,7 +368,7 @@ class VeistBot(commands.Bot):
                         pass
                 
                 # Post variation with status below
-                message_content = f"Variation {self.variation_count + 1}/{self.MAX_VARIATIONS}"
+                message_content = f"Variation {self.variation_count + 1}"
                 if CONFIG['display']['prompt_visibility'] == "Full":
                     message_content += f"\nPrompt: {result['prompt']}"
                 message_content += "\n\n🔄 Collecting feedback..."
@@ -380,17 +380,16 @@ class VeistBot(commands.Bot):
                 )
                 
                 # Update current version
-                if self.variation_count < self.MAX_VARIATIONS - 1:
-                    await self.current_version_message.delete()
-                    current_version_content = f"💫 Current Version ({self.variation_count + 1}/{self.MAX_VARIATIONS})"
-                    if CONFIG['display']['prompt_visibility'] == "Full":
-                        current_version_content += f"\nPrompt: {result['prompt']}"
-                    
-                    current_file = discord.File(result["path"])
-                    self.current_version_message = await self.generation_channel.send(
-                        current_version_content,
-                        file=current_file
-                    )
+                await self.current_version_message.delete()
+                current_version_content = f"💫 Current Version"
+                if CONFIG['display']['prompt_visibility'] == "Full":
+                    current_version_content += f"\nPrompt: {result['prompt']}"
+                
+                current_file = discord.File(result["path"])
+                self.current_version_message = await self.generation_channel.send(
+                    current_version_content,
+                    file=current_file
+                )
 
             # Add reactions
             for reaction in META_REACTIONS:
@@ -399,19 +398,7 @@ class VeistBot(commands.Bot):
             self.last_prompt = result['prompt']
             self.variation_count += 1
             
-            # Check if we're done
-            if self.variation_count >= self.MAX_VARIATIONS:
-                await self.current_version_message.delete()
-                final_file = discord.File(result["path"])
-                await self.generation_channel.send(
-                    f"✨ Final Result\nPrompt: {result['prompt']}", 
-                    file=final_file
-                )
-                
-                await self.current_thread.send("🏁 Final result posted in main channel.")
-                await self.current_thread.edit(archived=True, locked=True)
-                
-                self.loop.create_task(self.start_new_generation())
+            # No more check for max variations - removed
 
             # Clean up timer message when generating a new image
             if self.timer_message:
