@@ -1,0 +1,19 @@
+{
+  "name": "veistshadowbot",
+  "version": "1.0.0",
+  "description": "Bot for the Veist project.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Zavier Boyles & Tom White",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "fs": "^0.0.1-security",
+    "node-fetch": "^2.7.0",
+    "sharp": "^0.33.5",
+    "twemoji": "^12.1.6"
+  }
+}
