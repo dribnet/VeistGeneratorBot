@@ -4,7 +4,9 @@
   "description": "Bot for the Veist project.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node deploy-commands.js && node index.js",
+    "reset-db": "rm -f database.sqlite && touch database.sqlite"
   },
   "author": "Zavier Boyles & Tom White",
   "license": "ISC",

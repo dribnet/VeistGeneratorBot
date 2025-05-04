@@ -7,6 +7,10 @@ module.exports = sequelize.define('VPost', {
         allowNull: false,
         primaryKey: true
     },
+    guild_id: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
     prediction_response: {
         type: DataTypes.JSON,
         allowNull: true
@@ -33,11 +37,11 @@ module.exports = sequelize.define('VPost', {
     reactions: {
         type: DataTypes.JSON,
         allowNull: false,
-        defaultValue: { list: [] }
+        defaultValue: { cache: [] }
     },
     users: {
         type: DataTypes.JSON,
         allowNull: false,
-        defaultValue: { list: [] }
+        defaultValue: { cache: [] }
     }
 });
