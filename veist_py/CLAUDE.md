@@ -24,6 +24,73 @@ All other reactions are open to interpretation - the bot must learn their meanin
 - NFT publishing for notable consensus achievements
 - Multi-backend support for different generation models
 
+## NFT Publishing Integration
+
+### akaSwap API Details
+- **Base URL**: https://testnets.akaswap.com/api/v2
+- **Documentation**: https://hackmd.io/@red30603/SJmiQLE5ke
+- **Blockchain**: Tezos Ghostnet (testnet)
+
+### API Endpoints
+1. **IPFS Upload**: POST `/ipfs/tokens`
+   - Uploads three image versions (artifact, display, thumbnail)
+   - Returns IPFS URIs for all versions
+   
+2. **NFT Minting**: POST `/fa2tokens/{contract}`
+   - Creates and mints NFT tokens
+   - Requires proper authentication and contract permissions
+
+### Current Implementation Status
+- ✅ IPFS upload working perfectly
+- ✅ Image resizing for three quality levels (2048x2048, 1024x1024, 256x256)
+- ✅ Correct mint request format validated
+- ⚠️ Need production credentials for actual minting
+- ⚠️ Default contract: `KT1BgHYwDH1GyHUcyfz8Ykfzuz7KvpRuAz1v` (needs confirmation)
+
+### NFT Publishing Utility
+Located at `apps/publish.py`, provides:
+- Command-line interface for publishing images as NFTs
+- Automatic image resizing and IPFS upload
+- Full minting flow with metadata
+
+### Usage
+```bash
+# Set credentials
+export AKASWAP_PARTNER_ID="your-partner-id"
+export AKASWAP_PARTNER_SECRET="your-secret"
+
+# Publish an image
+python apps/publish.py image.jpg \
+  --name "Veist Consensus #1" \
+  --description "Community-approved artwork" \
+  --receiver "tz1YourWalletAddress"
+```
+
+### Testing
+```bash
+# Test IPFS upload only
+python apps/test_publish.py --skip-mint
+
+# Test full flow (requires valid credentials)
+python apps/test_publish.py
+```
+
+### Integration Notes for Meeting
+1. **Confirm contract address** - Is KT1BgHYwDH1GyHUcyfz8Ykfzuz7KvpRuAz1v correct?
+2. **Get production credentials** - Test creds work for IPFS but not minting
+3. **Wallet address** - What Tezos wallet should receive the NFTs?
+4. **Permissions** - Ensure partner account can mint on the contract
+5. **Token ID strategy** - Currently using timestamp, confirm if acceptable
+
+### Bot Integration Plan
+When ready, the bot will:
+1. Detect special "publish" reaction (e.g., 🎨 or custom emoji)
+2. Check if image achieved consensus (AllDone reactions)
+3. Automatically publish to NFT with metadata:
+   - Name: "Veist Consensus #{number}"
+   - Description: Include prompt and reaction data
+   - Attributes: Generator version, consensus score, timestamp
+
 ## Project Commands
 - Install dependencies: `pip install -r requirements.txt` (or `requirements_flux.txt` for GPU acceleration)
 - Run tests: `python -m pytest`
