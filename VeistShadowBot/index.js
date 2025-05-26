@@ -1,11 +1,17 @@
+// Require the necessary discord.js classes
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { token } = require('./config.json');
-const sequelize = require('./sql-database')
+const run = require('./bot');
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildExpressions] });
+const client = new Client({ intents: [
+    GatewayIntentBits.Guilds, 
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent,
+]});
 
 client.commands = new Collection();
 
@@ -13,8 +19,6 @@ const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
 
 for (const folder of commandFolders) {
-    if (folder.startsWith("._")) continue;
-
     const commandsPath = path.join(foldersPath, folder);
     const commandFiles = fs.readdirSync(commandsPath)
         .filter(file => file.endsWith('.js') && !file.startsWith('._'));
@@ -56,22 +60,12 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// Sync SQLite models
-(async () => {
-    try {
-        await sequelize.authenticate();
-        console.log('Database connected successfully.');
-        await sequelize.sync();
-        console.log('Database synced.');
-    } catch (error) {
-        console.error('Unable to connect to the database:', error);
-    }
-})();
-
 // When the client is ready, run this code only once.
 client.once(Events.ClientReady, readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.displayName}`);
 });
+
+run(client);
 
 // Log in to Discord with your client's token
 client.login(token);

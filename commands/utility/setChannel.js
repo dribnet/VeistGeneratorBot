@@ -15,11 +15,21 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
         async execute(interaction) {
             const channel = interaction.options.getChannel('channel');
-            await VGenerator.upsert({
-                name: "default",
-                channel_id: channel.id
-            });
-            await interaction.reply({
+            const generator = await VGenerator.findByPk(interaction.guildId);
+
+            if (!generator) {
+                interaction.reply({
+                    content: 'The generator has not been initialised in this guild.',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+
+            generator.properties.target_channel_id = channel.id;
+            generator.changed('properties', true);
+            generator.save();
+
+            interaction.reply({
                 content: `The target channel has been set to '${channel.name}'.`,
                 flags: MessageFlags.Ephemeral
             });

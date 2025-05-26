@@ -6,9 +6,9 @@ module.exports = {
         .setName('stop')
         .setDescription('Stop the generator.'),
     async execute(interaction) {
-        const generator = await VGenerator.findByPk("default");
+        const generator = await VGenerator.findByPk(interaction.guildId);
 
-        if (!generator?.timer_active) {
+        if (!generator?.is_active) {
             interaction.reply({
                 content: 'Timer has not been started. Use /start to begin generations.',
                 flags: MessageFlags.Ephemeral
@@ -16,16 +16,10 @@ module.exports = {
             return;
         }
 
-        const gen = await VGenerator.findByPk('default');
 
-        gen.timer_active = false;
+        generator.is_active = false;
         
-        const prop = gen.properties;
-        prop.gen_type = 'none';
-        gen.properties = prop;
-        gen.changed('properties', true);
-        
-        await gen.save();
+        await generator.save();
 
         interaction.reply({
             content: 'Timer has been stopped.',
