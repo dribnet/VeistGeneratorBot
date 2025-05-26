@@ -76,9 +76,8 @@ STARTER_PROMPTS = [
     "a cyberpunk scene with neon lights"
 ]
 
-# Define meta reactions
-META_REACTIONS = ["❤️"]  # Just the red heart
-
+# Archive duration for threads (in minutes)
+THREAD_ARCHIVE_DURATION = 60
 class VeistBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -99,6 +98,13 @@ class VeistBot(commands.Bot):
         self.last_thread_message = None
         self.last_prompt = None
         self.current_version_message = None
+        
+        # Meta reactions from config
+        self.META_REACTIONS = [
+            CONFIG['meta_reactions']['all_done'],
+            CONFIG['meta_reactions']['keep_going'],
+            CONFIG['meta_reactions']['go_back']
+        ]
         
         # Add progress bar related attributes
         self.waiting_message_sent = False
@@ -159,23 +165,27 @@ class VeistBot(commands.Bot):
         # Collect regular and meta reactions separately
         regular_reactions = {}
         meta_stats = {
-            "❤️": 0  # hearts
+            self.META_REACTIONS[0]: 0,  # all_done
+            self.META_REACTIONS[1]: 0,  # keep_going
+            self.META_REACTIONS[2]: 0   # go_back
         }
         
         for reaction in message.reactions:
             emoji = str(reaction.emoji)
             count = reaction.count
             
-            if emoji in META_REACTIONS:
+            if emoji in self.META_REACTIONS:
                 # Subtract 1 from meta reactions to account for bot's own reaction
                 meta_stats[emoji] = max(0, count - 1)
             else:
                 regular_reactions[emoji] = count
                 
-        # if CONFIG['display']['debug_output']:
-            # print(f"Reaction check:")
-            # print(f"Heart count: {meta_stats['❤️']}")
-            # print(f"Regular reactions: {regular_reactions}")
+        if CONFIG['display']['debug_output']:
+            print(f"Reaction check:")
+            print(f"Done count: {meta_stats[self.META_REACTIONS[0]]}")
+            print(f"Continue count: {meta_stats[self.META_REACTIONS[1]]}")
+            print(f"GoBack count: {meta_stats[self.META_REACTIONS[2]]}")
+            print(f"Regular reactions: {regular_reactions}")
             
         return regular_reactions, meta_stats
 
@@ -268,8 +278,8 @@ class VeistBot(commands.Bot):
                     print(f"Meta stats: {meta_stats}")
                     print(f"Regular reactions: {regular_reactions}")
                 
-                # Early completion check - only require heart and no regular reactions
-                if (meta_stats['❤️'] > 0 and 
+                # Early completion check - require all_done and no regular reactions
+                if (meta_stats[self.META_REACTIONS[0]] > 0 and 
                     sum(regular_reactions.values()) == 0):
                     if CONFIG['display']['debug_output']:
                         print("Early completion conditions met!")
@@ -282,7 +292,7 @@ class VeistBot(commands.Bot):
                             final_file = discord.File(temp_filename)
                             await self.current_version_message.delete()
                             await self.generation_channel.send(
-                                f"✨ Final Result (chosen with ❤️)\nPrompt: {self.last_prompt}", 
+                                f"✨ Final Result\nPrompt: {self.last_prompt}", 
                                 file=final_file
                             )
                             os.remove(temp_filename)
@@ -327,7 +337,7 @@ class VeistBot(commands.Bot):
                 
                 self.current_thread = await main_message.create_thread(
                     name="Variations",
-                    auto_archive_duration=60
+                    auto_archive_duration=THREAD_ARCHIVE_DURATION
                 )
                 self.variation_count = 0
                 
@@ -392,7 +402,7 @@ class VeistBot(commands.Bot):
                 )
 
             # Add reactions
-            for reaction in META_REACTIONS:
+            for reaction in self.META_REACTIONS:
                 await self.last_thread_message.add_reaction(reaction)
 
             self.last_prompt = result['prompt']

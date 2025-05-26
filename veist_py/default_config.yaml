@@ -15,6 +15,12 @@ display:
   prompt_visibility: "None"  # Options: "Full", "None"
   debug_output: false
 
+# Meta Reactions Configuration
+meta_reactions:
+  all_done: "<:VeistAllDone:1376541849485054062>"
+  keep_going: "<:VeistKeepGoing:1376541842371510341>"
+  go_back: "<:VeistGoBack:1376541845655650384>"
+
 # Advanced Settings
 retry:
   max_attempts: 3
