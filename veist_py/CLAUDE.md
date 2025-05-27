@@ -30,6 +30,8 @@ All other reactions are open to interpretation - the bot must learn their meanin
 - **Base URL**: https://testnets.akaswap.com/api/v2
 - **Documentation**: https://hackmd.io/@red30603/SJmiQLE5ke
 - **Blockchain**: Tezos Ghostnet (testnet)
+- **View NFTs**: https://testnets.akaswap.com/proxymint/{token_id}
+- **View Wallet**: https://testnets.akaswap.com/tz/{wallet_address}
 
 ### API Endpoints
 1. **IPFS Upload**: POST `/ipfs/tokens`
@@ -44,8 +46,8 @@ All other reactions are open to interpretation - the bot must learn their meanin
 - ✅ IPFS upload working perfectly
 - ✅ Image resizing for three quality levels (2048x2048, 1024x1024, 256x256)
 - ✅ Correct mint request format validated
-- ⚠️ Need production credentials for actual minting
-- ⚠️ Default contract: `KT1BgHYwDH1GyHUcyfz8Ykfzuz7KvpRuAz1v` (needs confirmation)
+- ✅ NFT minting working on Ghostnet testnet!
+- ✅ Contract address: `KT1DeWkBGLKiXoYqxnMT4w3c8chApAqkFhqJ` (confirmed working)
 
 ### NFT Publishing Utility
 Located at `apps/publish.py`, provides:
@@ -76,11 +78,11 @@ python apps/test_publish.py
 ```
 
 ### Integration Notes for Meeting
-1. **Confirm contract address** - Is KT1BgHYwDH1GyHUcyfz8Ykfzuz7KvpRuAz1v correct?
-2. **Get production credentials** - Test creds work for IPFS but not minting
-3. **Wallet address** - What Tezos wallet should receive the NFTs?
-4. **Permissions** - Ensure partner account can mint on the contract
-5. **Token ID strategy** - Currently using timestamp, confirm if acceptable
+1. ✅ **Contract address confirmed** - KT1DeWkBGLKiXoYqxnMT4w3c8chApAqkFhqJ works!
+2. ✅ **Test credentials working** - Can mint NFTs on Ghostnet
+3. **Production setup** - Discuss mainnet contract and credentials
+4. **Wallet address** - Confirm production Tezos wallet for receiving NFTs
+5. **Token ID strategy** - Currently using timestamp % Int32.MaxValue
 
 ### Bot Integration Plan
 When ready, the bot will:
@@ -90,6 +92,31 @@ When ready, the bot will:
    - Name: "Veist Consensus #{number}"
    - Description: Include prompt and reaction data
    - Attributes: Generator version, consensus score, timestamp
+
+## Next Steps - Image Generation Backend
+
+### GPT-Image-1 Integration (In Progress)
+- **Model**: gpt-image-1 (OpenAI's latest multimodal image model, released April 2025)
+- **Key Feature**: Can understand input images AND generate new ones based on feedback
+- **Pricing**: $0.02 (low), $0.07 (medium), $0.19 (high) per image
+- **Advantage**: Single API call for both understanding and generation
+
+### Why This Is Better
+- Old approach: Blind prompt manipulation ("A neon city but more 🌈")
+- New approach: AI actually sees the image and understands visual feedback
+- Can interpret emoji reactions as visual instructions (🔥 = more intensity, 💙 = blue tones, etc.)
+
+### Implementation Plan
+1. Start with simple API test utility (like we did for NFT publishing)
+2. Test image-to-image evolution with emoji feedback
+3. Once working, integrate into new bot architecture
+4. Build incrementally rather than big refactor
+
+### API Details
+- Endpoint: https://api.openai.com/v1/images/generations
+- Model: "gpt-image-1"
+- Supports: image input + prompt, quality levels, moderation settings
+- Returns: Generated image URL
 
 ## Project Commands
 - Install dependencies: `pip install -r requirements.txt` (or `requirements_flux.txt` for GPU acceleration)

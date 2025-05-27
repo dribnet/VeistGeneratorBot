@@ -15,7 +15,7 @@ import json
 # Test credentials from the docs
 TEST_PARTNER_ID = "aka-gptqgzidcn"
 TEST_PARTNER_SECRET = "d3b2e436a2dcb4571385aacf779d9858b9ad5a643e8dc10c9255c1a3a2014b12"
-TEST_RECEIVER = "tz1burnburnburnburnburnburnburjAYjjX"  # Burn address for testing
+TEST_RECEIVER = "tz2J3uKDJ9s68RtX1XSsqQB6ENRS3wiL1HR5"  # Test wallet from docs
 
 def test_ipfs_upload():
     """Test just the IPFS upload step"""

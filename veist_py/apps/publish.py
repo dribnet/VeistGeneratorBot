@@ -17,7 +17,7 @@ import io
 
 # API Configuration
 API_BASE_URL = "https://testnets.akaswap.com/api/v2"
-DEFAULT_CONTRACT = "KT1BgHYwDH1GyHUcyfz8Ykfzuz7KvpRuAz1v"  # From docs
+DEFAULT_CONTRACT = "KT1DeWkBGLKiXoYqxnMT4w3c8chApAqkFhqJ"  # Ghostnet FA2 Token contract
 
 class AkaSwapPublisher:
     def __init__(self, partner_id: str, partner_secret: str):
@@ -182,7 +182,16 @@ class AkaSwapPublisher:
         result = response.json()
         print(f"NFT minted successfully!")
         print(f"Token ID: {token_id}")
-        print(f"Transaction: {result}")
+        print(f"Contract: {contract}")
+        
+        # Construct the view URL
+        base_url = API_BASE_URL.replace('/api/v2', '')
+        nft_url = f"{base_url}/proxymint/{token_id}"
+        print(f"\n🎨 View your NFT at: {nft_url}")
+        
+        # Add URL to result
+        result['viewUrl'] = nft_url
+        
         return result
     
     def publish_image(self, 
