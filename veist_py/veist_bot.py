@@ -9,11 +9,14 @@ import logging
 import asyncio
 import base64
 import io
+import yaml
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 from openai import OpenAI
+from apps.publish import AkaSwapPublisher
 
 # Set up logging
 logging.basicConfig(
@@ -48,6 +51,20 @@ class VeistBot(commands.Bot):
         self.robot_channel = None
         self.current_response_id = None
         self.evolution_count = 0
+        self.last_message = None  # Track last bot message for reactions
+        self.last_image_path = None  # Store last image for NFT publishing
+        self.pending_publish = False  # Track if we're waiting for publish confirmation
+        
+        # Load config for meta reactions
+        config_path = Path(__file__).parent / "default_config.yaml"
+        with open(config_path, 'r') as f:
+            self.config = yaml.safe_load(f)
+        
+        self.meta_reactions = [
+            self.config['meta_reactions']['all_done'],
+            self.config['meta_reactions']['keep_going'],
+            self.config['meta_reactions']['go_back']
+        ]
         
         # Initialize OpenAI client
         try:
@@ -56,6 +73,16 @@ class VeistBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
             self.openai_client = None
+            
+        # Initialize NFT publisher
+        try:
+            partner_id = os.getenv('AKASWAP_PARTNER_ID', 'aka-gptqgzidcn')
+            partner_secret = os.getenv('AKASWAP_PARTNER_SECRET', 'd3b2e436a2dcb4571385aacf779d9858b9ad5a643e8dc10c9255c1a3a2014b12')
+            self.nft_publisher = AkaSwapPublisher(partner_id, partner_secret)
+            logger.info("NFT publisher initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize NFT publisher: {e}")
+            self.nft_publisher = None
         
     async def setup_hook(self):
         """Called when bot is starting up"""
@@ -130,15 +157,38 @@ class VeistBot(commands.Bot):
         await self.process_commands(message)
         
     async def on_reaction_add(self, reaction, user):
-        """Handle reactions - will implement image evolution here"""
+        """Handle reactions - meta reactions and publish confirmations"""
         # Ignore bot reactions
         if user.bot:
             return
             
-        # For now, just log it
-        logger.debug(f"Reaction {reaction.emoji} added by {user.name}")
+        # Only process reactions in robot channel
+        if reaction.message.channel != self.robot_channel:
+            return
+            
+        # Check if this is a reaction to our last message
+        if reaction.message.id != self.last_message.id if self.last_message else None:
+            return
+            
+        emoji_str = str(reaction.emoji)
         
-        # TODO: Implement image evolution based on reactions
+        # Check for publish confirmation (thumbs up to confirm)
+        if self.pending_publish and emoji_str == "👍":
+            await self.publish_as_nft()
+            self.pending_publish = False
+            return
+            
+        # Check for all_done meta reaction
+        if emoji_str == self.config['meta_reactions']['all_done']:
+            self.pending_publish = True
+            confirm_msg = await self.robot_channel.send(
+                "🎨 **Ready to publish as NFT?**\n"
+                "React with 👍 to confirm publishing this robot to the Tezos testnet!"
+            )
+            await confirm_msg.add_reaction("👍")
+            
+            # Update last message to track confirmations
+            self.last_message = confirm_msg
         
     async def on_error(self, event, *args, **kwargs):
         """Error handler"""
@@ -176,12 +226,25 @@ class VeistBot(commands.Bot):
                             filename=f"robot_initial.png"
                         )
                         
-                        await self.robot_channel.send(
+                        # Save image for potential NFT
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.last_image_path = f"outputs/robot_{timestamp}.png"
+                        os.makedirs("outputs", exist_ok=True)
+                        with open(self.last_image_path, 'wb') as f:
+                            f.write(image_bytes)
+                        
+                        # Send message
+                        self.last_message = await self.robot_channel.send(
                             "🎨 **Initial Robot Generated!**\n"
                             "Type any message to evolve it!",
                             file=file
                         )
-                        logger.info("Initial robot posted")
+                        
+                        # Add meta reactions
+                        for reaction in self.meta_reactions:
+                            await self.last_message.add_reaction(reaction)
+                        
+                        logger.info("Initial robot posted with reactions")
                         return
                         
             logger.error("No image in response")
@@ -219,12 +282,24 @@ class VeistBot(commands.Bot):
                             filename=f"robot_evolution_{self.evolution_count}.png"
                         )
                         
-                        await self.robot_channel.send(
+                        # Save image for potential NFT
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.last_image_path = f"outputs/robot_{timestamp}.png"
+                        with open(self.last_image_path, 'wb') as f:
+                            f.write(image_bytes)
+                        
+                        # Send message
+                        self.last_message = await self.robot_channel.send(
                             f"🔄 **Evolution #{self.evolution_count}**\n"
                             f"Applied: *{modification}*",
                             file=file
                         )
-                        logger.info(f"Evolution {self.evolution_count} posted")
+                        
+                        # Add meta reactions
+                        for reaction in self.meta_reactions:
+                            await self.last_message.add_reaction(reaction)
+                        
+                        logger.info(f"Evolution {self.evolution_count} posted with reactions")
                         return
                         
             logger.error("No image in evolution response")
@@ -232,6 +307,38 @@ class VeistBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to evolve robot: {e}")
             await self.robot_channel.send(f"❌ Evolution failed: {str(e)}")
+    
+    async def publish_as_nft(self):
+        """Publish the current robot as an NFT"""
+        if not self.nft_publisher or not self.last_image_path:
+            await self.robot_channel.send("❌ Unable to publish: No image or publisher available")
+            return
+            
+        try:
+            async with self.robot_channel.typing():
+                # Publish to NFT
+                result = self.nft_publisher.publish_image(
+                    image_path=self.last_image_path,
+                    name=f"Veist Robot Evolution #{self.evolution_count}",
+                    description=f"Community-evolved robot from VeistBot. Evolution count: {self.evolution_count}",
+                    receiver_address="tz2J3uKDJ9s68RtX1XSsqQB6ENRS3wiL1HR5"  # Test wallet
+                )
+                
+                if result.get('success'):
+                    nft_url = result['mint'].get('viewUrl', 'https://testnets.akaswap.com')
+                    await self.robot_channel.send(
+                        f"✅ **NFT Published!**\n"
+                        f"🎨 View on akaSwap: {nft_url}\n"
+                        f"📦 Token ID: {result['mint'].get('tokenId', 'Unknown')}\n"
+                        f"🔗 Contract: {result['mint'].get('contract', 'Unknown')}"
+                    )
+                    logger.info(f"NFT published: {result}")
+                else:
+                    await self.robot_channel.send("❌ NFT publishing failed")
+                    
+        except Exception as e:
+            logger.error(f"NFT publishing error: {e}")
+            await self.robot_channel.send(f"❌ NFT publishing error: {str(e)}")
 
 async def main():
     """Main entry point"""
