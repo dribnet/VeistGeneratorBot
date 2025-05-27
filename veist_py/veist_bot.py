@@ -54,6 +54,9 @@ class VeistBot(commands.Bot):
         self.last_message = None  # Track last bot message for reactions
         self.last_image_path = None  # Store last image for NFT publishing
         self.pending_publish = False  # Track if we're waiting for publish confirmation
+        self.pending_quality_bump = False  # Track if we're waiting for quality bump confirmation
+        self.current_quality = "low"  # Start with low quality
+        self.quality_levels = ["low", "medium", "high"]
         
         # Load config for meta reactions
         config_path = Path(__file__).parent / "default_config.yaml"
@@ -178,6 +181,12 @@ class VeistBot(commands.Bot):
             self.pending_publish = False
             return
             
+        # Check for quality bump confirmation
+        if self.pending_quality_bump and emoji_str == "👍":
+            await self.bump_quality()
+            self.pending_quality_bump = False
+            return
+            
         # Check for all_done meta reaction
         if emoji_str == self.config['meta_reactions']['all_done']:
             self.pending_publish = True
@@ -189,6 +198,22 @@ class VeistBot(commands.Bot):
             
             # Update last message to track confirmations
             self.last_message = confirm_msg
+            
+        # Check for keep_going meta reaction (quality bump)
+        elif emoji_str == self.config['meta_reactions']['keep_going']:
+            current_idx = self.quality_levels.index(self.current_quality)
+            if current_idx < len(self.quality_levels) - 1:
+                next_quality = self.quality_levels[current_idx + 1]
+                self.pending_quality_bump = True
+                confirm_msg = await self.robot_channel.send(
+                    f"📈 **Upgrade image quality?**\n"
+                    f"Current: {self.current_quality} → Next: {next_quality}\n"
+                    f"React with 👍 to regenerate at higher quality!"
+                )
+                await confirm_msg.add_reaction("👍")
+                self.last_message = confirm_msg
+            else:
+                await self.robot_channel.send("Already at highest quality! 🌟")
         
     async def on_error(self, event, *args, **kwargs):
         """Error handler"""
@@ -209,7 +234,7 @@ class VeistBot(commands.Bot):
                 response = self.openai_client.responses.create(
                     model="gpt-4o-mini",
                     input=prompt,
-                    tools=[{"type": "image_generation", "quality": "low"}],
+                    tools=[{"type": "image_generation", "quality": self.current_quality}],
                 )
                 
                 # Extract image
@@ -265,7 +290,7 @@ class VeistBot(commands.Bot):
                     model="gpt-4o-mini",
                     previous_response_id=self.current_response_id,
                     input=f"Modify the robot: {modification}",
-                    tools=[{"type": "image_generation", "quality": "low"}],
+                    tools=[{"type": "image_generation", "quality": self.current_quality}],
                 )
                 
                 # Extract evolved image
@@ -339,6 +364,64 @@ class VeistBot(commands.Bot):
         except Exception as e:
             logger.error(f"NFT publishing error: {e}")
             await self.robot_channel.send(f"❌ NFT publishing error: {str(e)}")
+    
+    async def bump_quality(self):
+        """Regenerate the current robot at higher quality"""
+        if not self.openai_client or not self.current_response_id:
+            await self.robot_channel.send("❌ No robot to upgrade!")
+            return
+            
+        # Bump quality level
+        current_idx = self.quality_levels.index(self.current_quality)
+        self.current_quality = self.quality_levels[current_idx + 1]
+        
+        try:
+            async with self.robot_channel.typing():
+                # Regenerate at higher quality
+                response = self.openai_client.responses.create(
+                    model="gpt-4o-mini",
+                    previous_response_id=self.current_response_id,
+                    input="Regenerate this exact same image at higher quality",
+                    tools=[{"type": "image_generation", "quality": self.current_quality}],
+                )
+                
+                # Extract image
+                for output in response.output:
+                    if output.type == "image_generation_call":
+                        # Update state
+                        self.current_response_id = response.id
+                        
+                        # Convert to discord file
+                        image_bytes = base64.b64decode(output.result)
+                        file = discord.File(
+                            io.BytesIO(image_bytes), 
+                            filename=f"robot_hq_{self.evolution_count}.png"
+                        )
+                        
+                        # Save image
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.last_image_path = f"outputs/robot_{timestamp}.png"
+                        with open(self.last_image_path, 'wb') as f:
+                            f.write(image_bytes)
+                        
+                        # Send message
+                        self.last_message = await self.robot_channel.send(
+                            f"✨ **Quality Upgraded!**\n"
+                            f"Now at: **{self.current_quality}** quality\n"
+                            f"(Evolution #{self.evolution_count})",
+                            file=file
+                        )
+                        
+                        # Add meta reactions
+                        for reaction in self.meta_reactions:
+                            await self.last_message.add_reaction(reaction)
+                        
+                        logger.info(f"Quality bumped to {self.current_quality}")
+                        return
+                        
+        except Exception as e:
+            logger.error(f"Quality bump failed: {e}")
+            await self.robot_channel.send(f"❌ Quality upgrade failed: {str(e)}")
 
 async def main():
     """Main entry point"""
