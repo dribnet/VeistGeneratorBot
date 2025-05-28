@@ -47,7 +47,7 @@ class VeistBot(commands.Bot):
         self.generation_channel = None
         
         # Robot evolution state
-        self.robot_channel_name = "robot-evolution"  # Dedicated channel name
+        self.robot_channel_name = "robot-text-evolution"  # Dedicated channel name
         self.robot_channel = None
         self.current_response_id = None
         self.evolution_count = 0
@@ -214,6 +214,16 @@ class VeistBot(commands.Bot):
                 self.last_message = confirm_msg
             else:
                 await self.robot_channel.send("Already at highest quality! 🌟")
+                
+        # Check for go_back meta reaction (reboot with new robot)
+        elif emoji_str == self.config['meta_reactions']['go_back']:
+            await self.robot_channel.send(
+                "🔄 **Rebooting with a new robot!**\n"
+                "Starting fresh..."
+            )
+            # Reset quality and generate new robot
+            self.current_quality = "low"
+            await self.generate_initial_robot()
         
     async def on_error(self, event, *args, **kwargs):
         """Error handler"""
