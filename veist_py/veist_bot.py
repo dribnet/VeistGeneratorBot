@@ -400,6 +400,262 @@ class TextEvolutionModule(VeistModule):
             await self.channel.send(f"❌ Quality upgrade failed: {str(e)}")
 
 
+class ReactionTestbedModule(VeistModule):
+    """Handles reaction-based robot evolution in robot-feedback-testbed channel"""
+    
+    def __init__(self, bot: 'VeistBot'):
+        super().__init__(bot)
+        self.channel_name = "robot-feedback-testbed"
+        self.channel = None
+        self.current_response_id = None
+        self.evolution_count = 0
+        self.last_message = None
+        self.last_image_path = None
+        self.current_quality = "low"
+        self.collecting_feedback = False
+        self.feedback_reactions = {}  # Track reactions for current image
+        
+    async def on_ready(self):
+        """Find channel and start initial robot"""
+        # Find the robot feedback testbed channel in Development category
+        for guild in self.bot.guilds:
+            # Look for Development category
+            dev_category = None
+            for category in guild.categories:
+                if category.name.lower() == "development":
+                    dev_category = category
+                    logger.info(f"Found Development category")
+                    break
+            
+            if dev_category:
+                # Look for robot-feedback-testbed channel in this category
+                for channel in dev_category.text_channels:
+                    if channel.name == self.channel_name:
+                        self.channel = channel
+                        logger.info(f"Found {self.channel_name} channel in Development")
+                        break
+            
+            # If not found in Development, check all channels as fallback
+            if not self.channel:
+                for channel in guild.text_channels:
+                    if channel.name == self.channel_name:
+                        self.channel = channel
+                        logger.info(f"Found {self.channel_name} channel (not in Development)")
+                        break
+        
+        if self.channel and self.bot.openai_client:
+            # Generate and post initial robot
+            await self.channel.send(
+                "🤖 **Robot Feedback Evolution Starting!**\n"
+                "I'll generate an initial robot, then evolve it based on your emoji reactions.\n"
+                "React with any emoji to guide the evolution!"
+            )
+            
+            await self.generate_initial_robot()
+        elif not self.channel:
+            logger.error(f"Could not find channel named '{self.channel_name}'")
+            
+    async def on_message(self, message: discord.Message):
+        """Handle messages - mostly for debugging output"""
+        # We don't process user messages in this mode
+        pass
+        
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        """Handle reactions for evolution"""
+        # Ignore bot reactions
+        if user.bot:
+            return
+            
+        # Only process reactions in our channel
+        if reaction.message.channel != self.channel:
+            return
+            
+        # Check if this is a reaction to our last message
+        if reaction.message.id != self.last_message.id if self.last_message else None:
+            return
+            
+        emoji_str = str(reaction.emoji)
+        
+        # Check if we're collecting feedback and this is thumbs up to process
+        if self.collecting_feedback and emoji_str == "👍":
+            await self.process_feedback()
+            return
+            
+        # Ignore meta reactions for now (but keep them on the message)
+        if emoji_str in [self.bot.config['meta_reactions']['all_done'], 
+                         self.bot.config['meta_reactions']['keep_going'],
+                         self.bot.config['meta_reactions']['go_back']]:
+            logger.info(f"Ignoring meta reaction: {emoji_str}")
+            return
+            
+        # Regular emoji - collect as feedback
+        if self.collecting_feedback:
+            # Track this emoji
+            if emoji_str in self.feedback_reactions:
+                self.feedback_reactions[emoji_str] += 1
+            else:
+                self.feedback_reactions[emoji_str] = 1
+            logger.info(f"Collected feedback: {emoji_str} (total: {self.feedback_reactions})")
+            
+    async def generate_initial_robot(self):
+        """Generate the first robot image"""
+        if not self.bot.openai_client or not self.channel:
+            return
+            
+        prompt = """Create a friendly, colorful robot character in a simple environment. 
+        The robot should have clear, distinct features that can be easily modified.
+        Digital art style, bright colors, clear details. Make it cute and appealing!"""
+        
+        try:
+            # Show typing indicator
+            async with self.channel.typing():
+                response = self.bot.openai_client.responses.create(
+                    model="gpt-4o-mini",
+                    input=prompt,
+                    tools=[{"type": "image_generation", "quality": self.current_quality}],
+                )
+                
+                # Extract image
+                for output in response.output:
+                    if output.type == "image_generation_call":
+                        # Save response ID for future evolutions
+                        self.current_response_id = response.id
+                        self.evolution_count = 0
+                        
+                        # Convert to discord file
+                        image_bytes = base64.b64decode(output.result)
+                        file = discord.File(
+                            io.BytesIO(image_bytes), 
+                            filename=f"robot_initial.png"
+                        )
+                        
+                        # Save image
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.last_image_path = f"outputs/robot_feedback_{timestamp}.png"
+                        os.makedirs("outputs", exist_ok=True)
+                        with open(self.last_image_path, 'wb') as f:
+                            f.write(image_bytes)
+                        
+                        # Send message
+                        self.last_message = await self.channel.send(
+                            "🎨 **Initial Robot Generated!**\n"
+                            "React with emojis to guide evolution.\n"
+                            "📊 **Collecting feedback...** Hit 👍 when ready to evolve!",
+                            file=file
+                        )
+                        
+                        # Add thumbs up for processing
+                        await self.last_message.add_reaction("👍")
+                        
+                        # Add meta reactions (for future use)
+                        for reaction in self.bot.meta_reactions:
+                            await self.last_message.add_reaction(reaction)
+                        
+                        # Start collecting feedback
+                        self.collecting_feedback = True
+                        self.feedback_reactions = {}
+                        
+                        logger.info("Initial robot posted, collecting feedback")
+                        return
+                        
+            logger.error("No image in response")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate initial robot: {e}")
+            await self.channel.send(f"❌ Failed to generate robot: {str(e)}")
+            
+    async def process_feedback(self):
+        """Process collected feedback and evolve robot"""
+        if not self.feedback_reactions:
+            await self.channel.send("No feedback reactions to process! Add some emoji reactions first.")
+            return
+            
+        # Stop collecting feedback
+        self.collecting_feedback = False
+        
+        # Build feedback string
+        feedback_str = ", ".join([f"{emoji}: {count}" for emoji, count in self.feedback_reactions.items()])
+        
+        # Build prompt from template
+        prompt = f"The following image has received feedback counts of {feedback_str}. Please examine this feedback and create a new evolved version of the robot that responds to these emoji reactions."
+        
+        # Show what we're sending (for debugging)
+        debug_msg = await self.channel.send(
+            f"🔧 **Processing feedback:**\n"
+            f"```\n{prompt}\n```"
+        )
+        
+        try:
+            # Show typing indicator
+            async with self.channel.typing():
+                response = self.bot.openai_client.responses.create(
+                    model="gpt-4o-mini",
+                    previous_response_id=self.current_response_id,
+                    input=prompt,
+                    tools=[{"type": "image_generation", "quality": self.current_quality}],
+                )
+                
+                # Check for text response
+                text_response = None
+                for output in response.output:
+                    if output.type == "text":
+                        text_response = output.content
+                        
+                # Show text response if any
+                if text_response:
+                    await self.channel.send(f"💭 **AI Response:**\n{text_response}")
+                
+                # Extract evolved image
+                for output in response.output:
+                    if output.type == "image_generation_call":
+                        # Update state
+                        self.current_response_id = response.id
+                        self.evolution_count += 1
+                        
+                        # Convert to discord file
+                        image_bytes = base64.b64decode(output.result)
+                        file = discord.File(
+                            io.BytesIO(image_bytes), 
+                            filename=f"robot_evolution_{self.evolution_count}.png"
+                        )
+                        
+                        # Save image
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        self.last_image_path = f"outputs/robot_feedback_{timestamp}.png"
+                        with open(self.last_image_path, 'wb') as f:
+                            f.write(image_bytes)
+                        
+                        # Send message
+                        self.last_message = await self.channel.send(
+                            f"🔄 **Evolution #{self.evolution_count}**\n"
+                            f"Based on feedback: {feedback_str}\n"
+                            f"📊 **Collecting feedback...** Hit 👍 when ready to evolve!",
+                            file=file
+                        )
+                        
+                        # Add thumbs up for processing
+                        await self.last_message.add_reaction("👍")
+                        
+                        # Add meta reactions (for future use)
+                        for reaction in self.bot.meta_reactions:
+                            await self.last_message.add_reaction(reaction)
+                        
+                        # Reset feedback collection
+                        self.collecting_feedback = True
+                        self.feedback_reactions = {}
+                        
+                        logger.info(f"Evolution {self.evolution_count} posted")
+                        return
+                        
+            logger.error("No image in evolution response")
+            
+        except Exception as e:
+            logger.error(f"Failed to evolve robot: {e}")
+            await self.channel.send(f"❌ Evolution failed: {str(e)}")
+            # Re-enable feedback collection
+            self.collecting_feedback = True
+
+
 class VeistBot(commands.Bot):
     """Main bot class with modular architecture"""
     
@@ -457,8 +713,9 @@ class VeistBot(commands.Bot):
             logger.info("TextEvolutionModule enabled")
             
         # Add more modules as we create them
-        # if 'reaction_testbed' in enabled_modules:
-        #     self.modules.append(ReactionTestbedModule(self))
+        if 'reaction_testbed' in enabled_modules:
+            self.modules.append(ReactionTestbedModule(self))
+            logger.info("ReactionTestbedModule enabled")
         
     async def setup_hook(self):
         """Called when bot is starting up"""
