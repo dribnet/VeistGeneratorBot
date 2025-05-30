@@ -122,20 +122,34 @@ When ready, the bot will:
 - Install dependencies: `pip install -r requirements.txt` (or `requirements_flux.txt` for GPU acceleration)
 - Run tests: `python -m pytest`
 - Run single test: `python -m pytest tests/test_generator.py::TestVeistGenerator::test_stop`
-- Run the bot: `python bot.py`
-- Run with custom config: `python bot.py config.yaml`
+- Run the old bot: `python bot.py` (or with custom config: `python bot.py config.yaml`)
+- Run the new modular bot: `python veist_bot.py`
+- Run with specific modules: `VEIST_MODULES=text_evolution,reaction_testbed python veist_bot.py`
 - Interactive generator CLI: `python generator.py`
 
 ## Architecture Overview
 
 ### Core Components
-- **bot.py**: Discord bot implementation, reaction handling, generation loop
+- **bot.py**: Original Discord bot implementation (HuggingFace based)
+- **veist_bot.py**: New modular bot architecture with OpenAI Responses API
+  - **VeistModule**: Base class for all bot modules
+  - **TextEvolutionModule**: Text-based evolution in `robot-text-evolution` channel
+  - **ReactionTestbedModule**: Emoji reaction-based evolution in `robot-feedback-testbed` channel
 - **generator.py**: Image generation interface (supports multiple backends)
 - **reaction_merging.py**: Interprets reactions to evolve prompts
 - **merging/**: Different strategies for interpreting reactions
   - append_merger.py: Simple reaction-to-text mapping
   - deepseek_merger.py: LLM-based interpretation
   - reaction_merger.py: Base interface
+
+### New Bot Features (veist_bot.py)
+- **Modular design**: Enable/disable different evolution modes via VEIST_MODULES env var
+- **OpenAI Responses API**: Uses gpt-4o-mini for multi-turn image evolution
+- **Visual comparison**: Shows before/after images side-by-side in ReactionTestbedModule
+- **Text commands**: Type `restart` for new robot, `publish` to mint NFT
+- **Quality tiers**: Start at medium quality, can upgrade with KeepGoing reaction
+- **Emoji interpretation**: AI explains how it interprets emoji feedback
+- **Debug output**: Shows full API responses for development
 
 ### Configuration
 - **default_config.yaml**: Base configuration with all options
@@ -181,3 +195,11 @@ def process_reactions(reactions: Dict[str, int], meta_stats: Dict[str, int]) -> 
 - Classes with clear method organization
 - Docstrings for public methods and modules
 - Keep Discord bot logic separate from generation logic
+
+## Environment Variables
+- `DISCORD_TOKEN` - Discord bot token
+- `OPENAI_API_KEY` - OpenAI API key for gpt-4o-mini and image generation
+- `VEIST_MODULES` - Comma-separated list of modules to enable (default: "text_evolution")
+- `AKASWAP_PARTNER_ID` - akaSwap partner ID for NFT publishing
+- `AKASWAP_PARTNER_SECRET` - akaSwap partner secret for NFT publishing
+- `GUILD_ID` - Optional Discord guild ID for command syncing
